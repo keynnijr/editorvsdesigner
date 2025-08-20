@@ -60,7 +60,6 @@
   </style>
 </head>
 <body>
-  <!-- MENU PRINCIPAL -->
   <div id="menuBackdrop">
     <div id="menuPanel">
       <img src="./img/logo.png" alt="Logo do jogo" id="menuLogo" />
@@ -83,7 +82,6 @@
       <button id="startBtn" class="btn">▶️ Jogar</button>
       <button id="muteBtn" class="btn">🔈</button>
       <button id="resetBtn" class="btn">⟲</button>
-      <!-- TELA DE GAME OVER (HTML) -->
       <div id="goBackdrop" aria-hidden="true">
         <div id="goPanel">
           <img src="./img/gameover.png" alt="Game Over" />
@@ -149,15 +147,13 @@ function getMusicLevelTrigger(level) {
   const MUSIC_SPEED = { BASE:0.8, STEP:0.05, LEVELS_PER_STEP:2, MIN:0.2, MAX:2.0 };
   const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
 
- // === AUDIO MANAGER (crossfade sólido) ===
+ // === AUDIO MANAGER (loop simples, sem crossfade) ===
 const AudioManager = (() => {
-  // ---- constantes de timing / crossfade
+  // ---- constantes de timing
   const LOOKAHEAD_SEC       = 0.050; // checagem do scheduler
   const SCHEDULE_AHEAD_SEC  = 1.000; // janela de agendamento
   const MIN_AHEAD           = 0.200; // NUNCA agendar a menos que 200ms no futuro
-  const CROSSFADE_SEC       = 0.180; // duração do overlap audível
   const MIN_SEG_WALL        = 0.020; // segmento mínimo (anti‑glitch)
-  const EPSILON_TIME        = 1e-4;
 
   // ---- estado básico
   let ctx=null, unlocked=false;
@@ -181,8 +177,8 @@ const AudioManager = (() => {
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   const t=()=>ctx?ctx.currentTime:0;
   const pick=a=>a[0]||null;
-  function killSegments(){ 
-    for(const n of Array.from(activeSeg)) { 
+  function killSegments(){
+    for(const n of Array.from(activeSeg)) {
       try{ n.stop(0); }catch(_){} } activeSeg.clear();
   }
   function ensureContext(){
@@ -199,16 +195,20 @@ const AudioManager = (() => {
       masterGain.connect(ctx.destination);
     }
   }
-  async function fetchAB(u){ 
-    const r=await fetch(u); 
-    if(!r.ok) throw new Error('Falha ao buscar '+u); 
-    return await r.arrayBuffer(); 
+  async function fetchAB(u){
+    const r=await fetch(u);
+    if(!r.ok) throw new Error('Falha ao buscar '+u);
+    return await r.arrayBuffer();
   }
   async function decode(u){
-    ensureContext(); const ab=await fetchAB(u); 
-    return await ctx.decodeAudioData(ab); 
+    ensureContext(); const ab=await fetchAB(u);
+    return await ctx.decodeAudioData(ab);
   }
 
+  // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  // AQUI ESTÁ A MUDANÇA PRINCIPAL:
+  // A função `scheduleOne` foi simplificada para não ter mais fade-in/fade-out.
+  // Ela agora apenas toca o som com volume 100%.
   function scheduleOne(when, offset, dur){
     const src = ctx.createBufferSource();
     src.buffer = currentMusicBuf;
@@ -217,34 +217,26 @@ const AudioManager = (() => {
     const g = ctx.createGain();
     src.connect(g); g.connect(musicGain);
 
-    const segWall = Math.max(MIN_SEG_WALL, dur / musicRate);
-    const fi = Math.min(CROSSFADE_SEC, segWall * 0.5); // fade‑in
-    const fo = Math.min(CROSSFADE_SEC, segWall * 0.5); // fade‑out
-
-    // Fade‑in linear seguro
-    g.gain.cancelScheduledValues(when);
-    g.gain.setValueAtTime(0, when);
-    g.gain.linearRampToValueAtTime(1, when + fi);
-    g.gain.setValueAtTime(1, when + fi + EPSILON_TIME);
-    // Fade‑out linear até o final do segmento
-    g.gain.linearRampToValueAtTime(0, when + segWall);
+    // Sem fades, apenas define o volume constante
+    g.gain.setValueAtTime(1, when);
 
     src.start(when, offset, dur);
 
     activeSeg.add(src);
-    src.onended = () => { 
+    src.onended = () => {
       activeSeg.delete(src);
       try{ src.disconnect(); g.disconnect();
          }catch(_){
-        
-         } 
+
+         }
     };
   }
+  // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-  function stopScheduler(){ 
-    playing=false; 
-    if (schedId){ clearInterval(schedId); 
-                 schedId=null; } 
+  function stopScheduler(){
+    playing=false;
+    if (schedId){ clearInterval(schedId);
+                  schedId=null; }
   }
 
   function startScheduler(){
@@ -255,17 +247,15 @@ const AudioManager = (() => {
       if (!playing || !currentMusicBuf) return;
 
       const now = t();
-      // garante que o próximo sempre tem folga
       if (nextWhen < now + MIN_AHEAD) nextWhen = now + MIN_AHEAD;
 
       while (nextWhen < now + SCHEDULE_AHEAD_SEC) {
         scheduleOne(nextWhen, nextOffset, nextLen);
 
         const segWall  = Math.max(MIN_SEG_WALL, nextLen / musicRate);
-        const overlap  = Math.min(CROSSFADE_SEC, segWall * 0.5); // quanto “come” do fim
-        const advance  = Math.max(segWall - overlap, MIN_SEG_WALL);
+        const advance  = segWall; // Avança o tempo exato da duração do segmento
 
-        nextWhen   = nextWhen + advance; // inicia antes do fim (overlap)
+        nextWhen   = nextWhen + advance; // O próximo começa exatamente onde este termina
         nextOffset = loopStart;          // a partir do loopStart
         nextLen    = loopLen;            // tamanho padrão do laço
       }
@@ -341,7 +331,7 @@ const AudioManager = (() => {
       nextLen    = Math.max(0.001, loopEnd - offset);
       nextWhen   = t() + MIN_AHEAD; // folga garantida
 
-      // fade no bus da música
+      // fade no bus da música (mantido para o início/pausa)
       if (fade > 0) {
         musicGain.gain.setValueAtTime(0, t());
         musicGain.gain.linearRampToValueAtTime(musicTargetVol, t() + fade);
@@ -351,25 +341,6 @@ const AudioManager = (() => {
 
       musicStartTime   = t() - (offset - loopStart);
       musicPauseOffset = 0;
-
-      // agenda dois blocos já no início para garantir overlap com fade‑in audível
-      const nowStart = nextWhen;
-      scheduleOne(nowStart, nextOffset, nextLen);
-      const segWall   = Math.max(MIN_SEG_WALL, nextLen / musicRate);
-      const overlap   = Math.min(CROSSFADE_SEC, segWall * 0.5);
-      const advance   = Math.max(segWall - overlap, MIN_SEG_WALL);
-
-      nextWhen   = nowStart + advance;
-      nextOffset = loopStart;
-      nextLen    = loopLen;
-
-      // segundo bloco antecipado
-      scheduleOne(nextWhen, nextOffset, nextLen);
-      const segWall2 = Math.max(MIN_SEG_WALL, nextLen / musicRate);
-      const advance2 = Math.max(segWall2 - overlap, MIN_SEG_WALL);
-      nextWhen   = nextWhen + advance2;
-      nextOffset = loopStart; // padrão
-      nextLen    = loopLen;
 
       startScheduler();
     },
@@ -527,21 +498,21 @@ const AudioManager = (() => {
     ["pizza", "salario.png"],
     ["heart", "vida.png"]
   ];
-  
-  function drawSprite(name,x,y,w,h){ 
-    const img = sprites[name]; 
+ 
+  function drawSprite(name,x,y,w,h){
+    const img = sprites[name];
     if(!img) return;
     if (w&&h) ctx.drawImage(img,x,y,w,h);
     else ctx.drawImage(img,x,y); }
 
-  const rand=(a,b)=>Math.random()*(b-a)+a; 
+  const rand=(a,b)=>Math.random()*(b-a)+a;
   const clamp2=(v,a,b)=>Math.max(a,Math.min(b,v));
  
   function rect(A,B){
     return !(A.x+A.w<B.x||B.x+B.w<A.x||A.y+A.h<B.y||B.y+B.h<A.y)
   }
 
-  const state = { 
+  const state = {
     running:false, gameOver:false, t:0, score:0, coffee:0, lives:3, level:1,
     player:{x:W/2-24,y:H-90,w:48,h:48,vx:1,dir:1},
     editor:{ x:W/2-24, y:PLAY_Y_MIN, w:48, h:48, vx:3 },
@@ -595,8 +566,8 @@ const AudioManager = (() => {
       const t = CONFIG.hazardTypes[i % CONFIG.hazardTypes.length];
       spawnBag.push(t);
     }
-    for (let i = spawnBag.length - 1; i > 0; i--) { 
-      const j = Math.floor(Math.random() * (i + 1)); 
+    for (let i = spawnBag.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
       [spawnBag[i], spawnBag[j]] = [spawnBag[j], spawnBag[i]];
     }
   }
@@ -628,7 +599,7 @@ const AudioManager = (() => {
   }
 
   // Clique/Toque no canvas: inverte direção
-  cvs.addEventListener('pointerdown', ()=>{ 
+  cvs.addEventListener('pointerdown', ()=>{
     if (!state.gameOver) state.player.dir *= -1; });
 
   function start(){
@@ -657,8 +628,8 @@ const AudioManager = (() => {
     }
   }
 
-  ui.start.onclick=()=>{ 
-    if(!state.running && !state.gameOver) start(); 
+  ui.start.onclick=()=>{
+    if(!state.running && !state.gameOver) start();
     else togglePause(); };
   ui.reset.onclick=reset;
 
@@ -673,7 +644,7 @@ const AudioManager = (() => {
   pauseBtn.onclick = togglePause;
 
   function loop(){ if(!state.running) return;
-                  requestAnimationFrame(loop); update(); draw(); }
+                    requestAnimationFrame(loop); update(); draw(); }
 
   // ===== Música acelera 0.1x a cada 2 níveis (começa lenta) =====
   let lastAppliedRate = MUSIC_SPEED.BASE;
@@ -796,10 +767,3 @@ const musicLevelTrigger = getMusicLevelTrigger(state.level);
 </script>
 </body>
 </html>
-
-
-
-
-
-
-
