@@ -146,7 +146,7 @@ function getMusicLevelTrigger(level) {
   };
 
   // ===== Config global da velocidade da trilha =====
-  const MUSIC_SPEED = { BASE:0.8, STEP:0.1, LEVELS_PER_STEP:2, MIN:0.5, MAX:2.0 };
+  const MUSIC_SPEED = { BASE:0.8, STEP:0.05, LEVELS_PER_STEP:2, MIN:0.2, MAX:2.0 };
   const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
 
  // === AUDIO MANAGER (crossfade sólido) ===
@@ -181,7 +181,10 @@ const AudioManager = (() => {
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   const t=()=>ctx?ctx.currentTime:0;
   const pick=a=>a[0]||null;
-  function killSegments(){ for(const n of Array.from(activeSeg)) { try{ n.stop(0); }catch(_){} } activeSeg.clear(); }
+  function killSegments(){ 
+    for(const n of Array.from(activeSeg)) { 
+      try{ n.stop(0); }catch(_){} } activeSeg.clear();
+  }
   function ensureContext(){
     if (!ctx){
       ctx = new (window.AudioContext||window.webkitAudioContext)();
@@ -196,8 +199,15 @@ const AudioManager = (() => {
       masterGain.connect(ctx.destination);
     }
   }
-  async function fetchAB(u){ const r=await fetch(u); if(!r.ok) throw new Error('Falha ao buscar '+u); return await r.arrayBuffer(); }
-  async function decode(u){ ensureContext(); const ab=await fetchAB(u); return await ctx.decodeAudioData(ab); }
+  async function fetchAB(u){ 
+    const r=await fetch(u); 
+    if(!r.ok) throw new Error('Falha ao buscar '+u); 
+    return await r.arrayBuffer(); 
+  }
+  async function decode(u){
+    ensureContext(); const ab=await fetchAB(u); 
+    return await ctx.decodeAudioData(ab); 
+  }
 
   function scheduleOne(when, offset, dur){
     const src = ctx.createBufferSource();
@@ -222,10 +232,20 @@ const AudioManager = (() => {
     src.start(when, offset, dur);
 
     activeSeg.add(src);
-    src.onended = () => { activeSeg.delete(src); try{ src.disconnect(); g.disconnect(); }catch(_){} };
+    src.onended = () => { 
+      activeSeg.delete(src);
+      try{ src.disconnect(); g.disconnect();
+         }catch(_){
+        
+         } 
+    };
   }
 
-  function stopScheduler(){ playing=false; if (schedId){ clearInterval(schedId); schedId=null; } }
+  function stopScheduler(){ 
+    playing=false; 
+    if (schedId){ clearInterval(schedId); 
+                 schedId=null; } 
+  }
 
   function startScheduler(){
     stopScheduler();
@@ -478,8 +498,8 @@ const AudioManager = (() => {
   addEventListener('resize', fit); fit();
 
   // Velocidade do jogador
-  const PLAYER_BASE_SPEED = 6;
-  const PLAYER_LEVEL_MULT = 0.12;
+  const PLAYER_BASE_SPEED = 4;
+  const PLAYER_LEVEL_MULT = 0.05;
 
   // --- Sprites externos (tolerante a falhas) ---
   const sprites = {};
@@ -507,10 +527,19 @@ const AudioManager = (() => {
     ["pizza", "salario.png"],
     ["heart", "vida.png"]
   ];
-  function drawSprite(name,x,y,w,h){ const img = sprites[name]; if(!img) return; if (w&&h) ctx.drawImage(img,x,y,w,h); else ctx.drawImage(img,x,y); }
+  
+  function drawSprite(name,x,y,w,h){ 
+    const img = sprites[name]; 
+    if(!img) return;
+    if (w&&h) ctx.drawImage(img,x,y,w,h);
+    else ctx.drawImage(img,x,y); }
 
-  const rand=(a,b)=>Math.random()*(b-a)+a; const clamp2=(v,a,b)=>Math.max(a,Math.min(b,v));
-  function rect(A,B){return !(A.x+A.w<B.x||B.x+B.w<A.x||A.y+A.h<B.y||B.y+B.h<A.y)}
+  const rand=(a,b)=>Math.random()*(b-a)+a; 
+  const clamp2=(v,a,b)=>Math.max(a,Math.min(b,v));
+ 
+  function rect(A,B){
+    return !(A.x+A.w<B.x||B.x+B.w<A.x||A.y+A.h<B.y||B.y+B.h<A.y)
+  }
 
   const state = { 
     running:false, gameOver:false, t:0, score:0, coffee:0, lives:3, level:1,
@@ -541,7 +570,7 @@ const AudioManager = (() => {
     return `${base}.${String(cs).padStart(2,'0')}`;
   }
 
-  const speedMult = ()=> 1 + Math.floor(state.coffee/3)*0.15;
+  const speedMult = ()=> 1 + Math.floor(state.coffee/3)*0.05;
 
   function reset(){
     state.running=false; state.gameOver=false; state.t=0;
@@ -566,7 +595,10 @@ const AudioManager = (() => {
       const t = CONFIG.hazardTypes[i % CONFIG.hazardTypes.length];
       spawnBag.push(t);
     }
-    for (let i = spawnBag.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [spawnBag[i], spawnBag[j]] = [spawnBag[j], spawnBag[i]]; }
+    for (let i = spawnBag.length - 1; i > 0; i--) { 
+      const j = Math.floor(Math.random() * (i + 1)); 
+      [spawnBag[i], spawnBag[j]] = [spawnBag[j], spawnBag[i]];
+    }
   }
 
   function nextSpawnType(){
@@ -596,7 +628,8 @@ const AudioManager = (() => {
   }
 
   // Clique/Toque no canvas: inverte direção
-  cvs.addEventListener('pointerdown', ()=>{ if (!state.gameOver) state.player.dir *= -1; });
+  cvs.addEventListener('pointerdown', ()=>{ 
+    if (!state.gameOver) state.player.dir *= -1; });
 
   function start(){
     if(state.gameOver) reset();
@@ -624,7 +657,9 @@ const AudioManager = (() => {
     }
   }
 
-  ui.start.onclick=()=>{ if(!state.running && !state.gameOver) start(); else togglePause(); };
+  ui.start.onclick=()=>{ 
+    if(!state.running && !state.gameOver) start(); 
+    else togglePause(); };
   ui.reset.onclick=reset;
 
   let muted = false;
@@ -637,7 +672,8 @@ const AudioManager = (() => {
   const pauseBtn = document.getElementById('pauseBtn');
   pauseBtn.onclick = togglePause;
 
-  function loop(){ if(!state.running) return; requestAnimationFrame(loop); update(); draw(); }
+  function loop(){ if(!state.running) return;
+                  requestAnimationFrame(loop); update(); draw(); }
 
   // ===== Música acelera 0.1x a cada 2 níveis (começa lenta) =====
   let lastAppliedRate = MUSIC_SPEED.BASE;
@@ -760,6 +796,7 @@ const musicLevelTrigger = getMusicLevelTrigger(state.level);
 </script>
 </body>
 </html>
+
 
 
 
