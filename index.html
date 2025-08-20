@@ -132,16 +132,20 @@
     instrText: document.getElementById('menuInstrText')
   };
 
+  // ===== Config global de velocidade da trilha (usada dentro/fora do AudioManager) =====
+  const MUSIC_SPEED = {
+    BASE: 0.8,          // slow motion inicial
+    STEP: 0.1,          // +0.1x por passo
+    LEVELS_PER_STEP: 2, // 1 passo a cada 2 níveis
+    MIN: 0.5,
+    MAX: 2.0
+  };
+  function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
   // === AUDIO MANAGER — scheduler + equal-power crossfade + velocidade dinâmica ===
   const AudioManager = (() => {
-    // Velocidade dinâmica
-    let musicRate = 1; // velocidade atual
-    const BASE_RATE = 0.8;          // ⇐ velocidade inicial (slow motion)
-    const RATE_STEP = 0.1;          // ⇐ +0.1x por passo
-    const LEVELS_PER_STEP = 2;      // ⇐ 1 passo a cada 2 níveis
-    const MIN_RATE = 0.5, MAX_RATE = 2.0;
-
-    function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+    // lê das configs globais
+    let musicRate = MUSIC_SPEED.BASE;
 
     // Segmentos ativos de música (para matar e evitar sobreposição)
     const activeSeg = new Set();
@@ -310,13 +314,6 @@
         }
 
         mountBadge(); updateBadge();
-        window.AudioDiag = () => ({
-          unlocked, usingMediaElement:useMediaElement, hasBuffer:!!currentMusicBuf,
-          loopStart: musicMeta.loopStart, loopEnd: musicMeta.loopEnd,
-          bufferDuration: currentMusicBuf?.duration, sampleRate: currentMusicBuf?.sampleRate,
-          ctxState: ctx?.state
-        });
-        console.log('[AudioManager] state:', window.AudioDiag());
       },
 
       playMusic({fade=0.5}={}){
@@ -418,7 +415,7 @@
       },
 
       setMusicRate(r){
-        r = clamp(r, MIN_RATE, MAX_RATE);
+        r = clamp(r, MUSIC_SPEED.MIN, MUSIC_SPEED.MAX);
 
         // fallback <audio>
         if (useMediaElement){
@@ -445,27 +442,6 @@
         updateBadge();
       },
 
-      async crossfadeTo(srcs,fade=1.0,loop={}){
-        ensureContext();
-        let nb=null; for(const u of srcs){ try{ nb=await decode(u); break; }catch(e){} }
-        if(!nb){
-          this.pauseMusic({fade});
-          useMediaElement=true; mediaEl=new Audio(); mediaEl.loop=true; mediaEl.preload='auto'; mediaEl.src=pick(srcs);
-          mediaEl.volume=0; mediaEl.playbackRate = musicRate; mediaEl.play().catch(()=>{});
-          const target=musicTargetVol, step=1/30; let x=0; const iv=setInterval(()=>{ x+=step; mediaEl.volume=Math.min(target,x/fade*target); if(x>=fade) clearInterval(iv); },33);
-          return;
-        }
-        this.pauseMusic({fade});
-        setTimeout(()=>{
-          currentMusicBuf = nb;
-          const sr = nb.sampleRate||44100;
-          musicMeta.loopStart = loop.loopStart ?? 0;
-          musicMeta.loopEnd   = loop.loopEnd ?? (nb.duration - 1/sr);
-          this.playMusic({fade});
-          updateBadge();
-        }, Math.max(10, fade*1000));
-      },
-
       playSfx(n,{volume=1,detune=0}={}){
         if(!unlocked) return;
         const b=buffers.get(n); if(!b) return;
@@ -477,7 +453,7 @@
         activeSfx.add(src); src.onended=()=>activeSfx.delete(src);
       },
 
-      setMasterVolume(v){ rampParam(masterGain.gain,v,0.05); },
+      setMasterVolume(v){ rampParam(masterGain.gain,clamp(v,0,1),0.05); },
       setMusicVolume(v){
         musicTargetVol = clamp(v,0,1);
         const now = t();
@@ -485,8 +461,6 @@
         musicGain.gain.setValueAtTime(musicGain.gain.value, now);
         musicGain.gain.linearRampToValueAtTime(musicTargetVol, now + 0.05);
       },
-
-      setSfxVolume(v){ rampParam(sfxGain.gain,clamp(v,0,1),0.01); },
 
       handleVisibility(){
         if (document.hidden){
@@ -497,10 +471,7 @@
             setTimeout(() => this.playMusic({fade:0.3}), 100);
           }
         }
-      },
-
-      // helpers expostos (opcional)
-      _diag(){ return {playing, musicRate, loopStart, loopEnd, loopLen}; }
+      }
     };
   })();
   // === /AUDIO MANAGER ===
@@ -633,7 +604,7 @@
     }
   }
 
-  const rand=(a,b)=>Math.random()*(b-a)+a; const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const rand=(a,b)=>Math.random()*(b-a)+a; const clamp2=(v,a,b)=>Math.max(a,Math.min(b,v));
   function rect(A,B){return !(A.x+A.w<B.x||B.x+B.w<A.x||A.y+A.h<B.y||B.y+B.h<A.y)}
 
   const state = { 
@@ -727,7 +698,7 @@
 
   function spawn(){
     const type = nextSpawnType();
-    const x = clamp(state.editor.x+24+rand(-60,60), 16, W-16-48);
+    const x = clamp2(state.editor.x+24+rand(-60,60), 16, W-16-48);
     const y = state.editor.y+40;
     const baseVY = rand(2.2,4.2) + state.level*0.2;
     state.items.push({ x, y, w:48, h:48, vy:baseVY, type, sway:rand(-0.6,0.6) });
@@ -772,8 +743,8 @@
   let muted = false;
   ui.mute.onclick=()=> {
     muted = !muted;
-    if (muted) { AudioManager.setMasterVolume(0); ui.mute.textContent = '🔇'; }
-    else { AudioManager.setMasterVolume(1); ui.mute.textContent = '🔈'; }
+    if (muted) { AudioManager.setMasterVolume?.(0); ui.mute.textContent = '🔇'; }
+    else { AudioManager.setMasterVolume?.(1); ui.mute.textContent = '🔈'; }
   };
 
   const pauseBtn = document.getElementById('pauseBtn');
@@ -785,11 +756,11 @@
 
   function loop(){ if(!state.running) return; requestAnimationFrame(loop); update(); draw(); }
 
-  // ====== música acelera 0.1x a cada 2 níveis, começando em BASE_RATE ======
-  let lastAppliedRate = BASE_RATE;
+  // ====== música acelera 0.1x a cada 2 níveis, começando em BASE ======
+  let lastAppliedRate = MUSIC_SPEED.BASE;
   function rateForLevel(lvl){
-    const steps = Math.floor(Math.max(1, lvl - 1) / 2); // 2 níveis por passo
-    return Math.max(MIN_RATE, Math.min(MAX_RATE, BASE_RATE + steps * RATE_STEP));
+    const steps = Math.floor(Math.max(1, lvl - 1) / MUSIC_SPEED.LEVELS_PER_STEP);
+    return clamp(MUSIC_SPEED.BASE + steps * MUSIC_SPEED.STEP, MUSIC_SPEED.MIN, MUSIC_SPEED.MAX);
   }
 
   function update(){
@@ -809,7 +780,7 @@
     state.editor.x += state.editor.vx * speedMult();
     if(state.editor.x<16 || state.editor.x>W-16-state.editor.w){
       state.editor.vx*=-1;
-      state.editor.x=clamp(state.editor.x,16,W-16-state.editor.w);
+      state.editor.x=clamp2(state.editor.x,16,W-16-state.editor.w);
     }
 
     // Spawns
