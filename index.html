@@ -117,18 +117,18 @@
   const cvs = document.getElementById('game');
   const ctx = cvs.getContext('2d');
   const ui = { start:byId('startBtn'), reset:byId('resetBtn'), mute:byId('muteBtn'), left:byId('left'), right:byId('right') };
-// No topo do script, adicione:
-let lastMusicLevelTrigger = 1;
+  // No topo do script, adicione:
+  let lastMusicLevelTrigger = 1;
 
-// Função para calcular o trigger de nível (a cada 2 níveis)
-function getMusicLevelTrigger(level) {
-  return Math.floor((level - 1) / MUSIC_SPEED.LEVELS_PER_STEP); // LEVELS_PER_STEP = 2
-}
+  // Função para calcular o trigger de nível (a cada 2 níveis)
+  function getMusicLevelTrigger(level) {
+    return Math.floor((level - 1) / MUSIC_SPEED.LEVELS_PER_STEP); // LEVELS_PER_STEP = 2
+    }
   // Bloqueia setas/space de interferirem (scroll/histórico)
   addEventListener('keydown', e=>{
     if (['ArrowLeft','ArrowRight',' '].includes(e.key) || (e.altKey && (e.key==='ArrowLeft'||e.key==='ArrowRight')))
       e.preventDefault();
-  }, {passive:false});
+    }, {passive:false});
 
   // HTML de Game Over
   const go = { back: byId('goBackdrop'), restart: byId('restartBtn') };
@@ -140,32 +140,31 @@ function getMusicLevelTrigger(level) {
     back: document.getElementById('menuBackdrop'),
     start: document.getElementById('menuStartBtn'),
     instr: document.getElementById('menuInstrBtn'),
-    instrText: document.getElementById('menuInstrText')
-  };
+    instrText: document.getElementById('menuInstrText')};
 
-  // ===== Config global da velocidade da trilha =====
-  const MUSIC_SPEED = { BASE:0.8, STEP:0.05, LEVELS_PER_STEP:2, MIN:0.2, MAX:2.0 };
-  const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+    // ===== Config global da velocidade da trilha =====
+    const MUSIC_SPEED = { BASE:0.8, STEP:0.05, LEVELS_PER_STEP:2, MIN:0.2, MAX:2.0 };
+    const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
 
-// === AUDIO MANAGER (com loop nativo e preciso) ===
-const AudioManager = (() => {
-  // ---- estado básico
-  let ctx=null, unlocked=false;
-  let masterGain, musicGain, sfxGain;
-  
-  let musicTargetVol=0.8, musicRate=0.2;
-  const buffers=new Map();
-  let currentMusicBuf=null, musicSource=null;
-  
-  // meta do loop
-  const musicMeta = { loopStart:0, loopEnd:null };
+    // === AUDIO MANAGER (com loop nativo e preciso) ===
+    const AudioManager = (() => {
+    // ---- estado básico
+    let ctx=null, unlocked=false;
+    let masterGain, musicGain, sfxGain;
+    
+    let musicTargetVol=0.8, musicRate=0.2;
+    const buffers=new Map();
+    let currentMusicBuf=null, musicSource=null;
+    
+    // meta do loop
+    const musicMeta = { loopStart:0, loopEnd:null };
 
-  // estado de pausa
-  let musicPauseOffset=0, musicStartTime=0, isPlaying=false;
+    // estado de pausa
+    let musicPauseOffset=0, musicStartTime=0, isPlaying=false;
 
-  // utils
-  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-  const t=()=>ctx?ctx.currentTime:0;
+    // utils
+    const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+    const t=()=>ctx?ctx.currentTime:0;
   
   function ensureContext(){
     if (!ctx){
@@ -179,28 +178,28 @@ const AudioManager = (() => {
       musicGain.connect(masterGain);
       sfxGain.connect(masterGain);
       masterGain.connect(ctx.destination);
-    }
+      }
   }
   async function fetchAB(u){
     const r=await fetch(u);
     if(!r.ok) throw new Error('Falha ao buscar '+u);
     return await r.arrayBuffer();
-  }
+    }
   async function decode(u){
     ensureContext(); const ab=await fetchAB(u);
     return await ctx.decodeAudioData(ab);
-  }
+  }   
 
   function stopMusicSource() {
     if (musicSource) {
       try {
         musicSource.stop(0);
         musicSource.disconnect();
-      } catch(_) {}
+        } catch(_) {}
       musicSource = null;
-    }
+      }
     isPlaying = false;
-  }
+    }
 
   return {
     async unlock(){ ensureContext(); if (ctx.state==='suspended'){ try{ await ctx.resume(); }catch{} } unlocked=true; },
@@ -303,9 +302,9 @@ const AudioManager = (() => {
     handleVisibility(){
       if (document.hidden){ this._wasPlaying = isPlaying; if (isPlaying) this.pauseMusic({fade:0.2}); }
       else if (this._wasPlaying){ setTimeout(()=>this.playMusic({fade:0.3}), 120); }
-    }
-  };
-})();
+      }
+    };
+  })();
 
 
   document.addEventListener('visibilitychange', AudioManager.handleVisibility.bind(AudioManager));
@@ -316,9 +315,9 @@ const AudioManager = (() => {
       await AudioManager.preload({
         music: { src: ['./audio/music.ogg','./audio/music.mp3'], forceBuffer: true },
         sfx:   { click:['./audio/click.ogg','./audio/click.mp3'], hit:['./audio/hit.ogg','./audio/hit.mp3'] }
-      });
+        });
     }catch(e){ console.warn('Preload de áudio falhou:', e); }
-  })();
+    }) ();
 
   // === Spawn Config ===
   const CONFIG = {
@@ -327,16 +326,15 @@ const AudioManager = (() => {
       { lvl: 1, coffee: 3 },
       { lvl: 8, coffee: 2 },
       { lvl: 15, coffee: 1 },
-    ],
-    lifeEvery: 15,
+  ],
+      lifeEvery: 15,
     maxLives: 5,
-    hazardTypes: ['paper','imageIcon','request','graphic','graphic2']
-  };
+    hazardTypes: ['paper','imageIcon','request','graphic','graphic2']};
   function coffeePer10ForLevel(lvl){
     let val = 3;
     for (const step of CONFIG.coffeePer10ByLevel) if (lvl >= step.lvl) val = step.coffee;
     return val;
-  }
+    }
 
   // Mostrar/Ocultar menu
   function showMenu() { menu.back.style.display = 'flex'; }
@@ -673,12 +671,10 @@ const AudioManager = (() => {
 
   Promise.all(imageFiles.map(([n, f]) => loadImage(n, f))).then(() => {
     reset(); draw(); showMenu();
-  });
+    });
 
-})();
-</script>
+  }
+  })();
+ </script>
 </body>
 </html>
-
-
-
