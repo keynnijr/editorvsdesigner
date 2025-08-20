@@ -165,14 +165,25 @@
 
     function ensureContext(){
       if(!ctx){
-        ctx=new (window.AudioContext||window.webkitAudioContext)();
-        musicGain=ctx.createGain();
-        musicGain.gain.value = musicTargetVol; // em vez de 0.8 fixo
-
-        masterGain.gain.value=1; musicGain.gain.value=0.8; sfxGain.gain.value=1;
-        musicGain.connect(masterGain); sfxGain.connect(masterGain); masterGain.connect(ctx.destination);
+        ctx = new (window.AudioContext || window.webkitAudioContext)();
+    
+        // crie TODOS os nós de ganho
+        masterGain = ctx.createGain();
+        musicGain  = ctx.createGain();
+        sfxGain    = ctx.createGain();
+    
+        // valores iniciais
+        masterGain.gain.value = 1;
+        musicGain.gain.value  = musicTargetVol; // respeita o alvo definido
+        sfxGain.gain.value    = 1;
+    
+        // conexões
+        musicGain.connect(masterGain);
+        sfxGain.connect(masterGain);
+        masterGain.connect(ctx.destination);
       }
     }
+
     async function fetchAB(u){ const r=await fetch(u); if(!r.ok) throw new Error('Falha ao buscar '+u); return await r.arrayBuffer(); }
     async function decode(u){ ensureContext(); const ab=await fetchAB(u); return await ctx.decodeAudioData(ab); }
     function t(){ return ctx?ctx.currentTime:0; }
@@ -882,4 +893,5 @@
 </script>
 </body>
 </html>
+
 
