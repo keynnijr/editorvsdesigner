@@ -206,7 +206,7 @@ function getMusicLevelTrigger(level) {
       const segWall = Math.max(0.001, dur / musicRate);
       const fi = Math.min(CROSSFADE_SEC, segWall * 0.5);
       const fo = Math.min(CROSSFADE_SEC, segWall * 0.5);
-
+      if(segWall < fi + fo) return;
       g.gain.setValueAtTime(0, when);
       g.gain.setValueCurveAtTime(curves.fadeIn, when, fi);
       g.gain.setValueAtTime(1, when+fi);
@@ -225,6 +225,14 @@ function getMusicLevelTrigger(level) {
         if(!playing || !currentMusicBuf) return;
         const now=t();
         while (nextWhen < now + SCHEDULE_AHEAD_SEC) {
+          const segWall = Math.max(0.001, nextLen / musicRate);
+      const fi = Math.min(CROSSFADE_SEC, segWall * 0.5);
+      const fo = Math.min(CROSSFADE_SEC, segWall * 0.5);
+      if(segWall < fi + fo) {
+        // Pule esse agendamento para evitar erro
+        nextWhen += 0.05; // Ou aguarde um pouquinho
+        continue;
+      }
           scheduleOne(nextWhen, nextOffset, nextLen);
           const segWall = Math.max(0.001, nextLen / musicRate);
           nextWhen   = nextWhen + segWall - CROSSFADE_SEC;
@@ -752,5 +760,6 @@ function update() {
 </script>
 </body>
 </html>
+
 
 
