@@ -134,9 +134,23 @@
 
   // === AUDIO MANAGER — scheduler + equal-power crossfade + DIAGNÓSTICO ===
   const AudioManager = (() => {
+   let musicRate = 1; // velocidade atual
+const BASE_RATE = 0.8;          // ⇐ velocidade inicial (0.8x = 80%)
+const RATE_STEP = 0.1;          // ⇐ +0.1x por passo
+const LEVELS_PER_STEP = 2;      // ⇐ 1 passo a cada 2 níveis
+const MIN_RATE = 0.5, MAX_RATE = 2.0;
+
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+    const activeSeg = new Set(); // BufferSources de música ativos
+    function killSegments() {
+  for (const node of Array.from(activeSeg)) {
+    try { node.stop(0); } catch(_) {}
+  }
+  activeSeg.clear();
+}
     let ctx=null, unlocked=false, masterGain, musicGain, sfxGain;
     let useMediaElement=false, mediaEl=null, mediaElSrcs=[];
-    let musicTargetVol = 5.0;
+    let musicTargetVol = 0.8;
     const buffers=new Map(), sfxConcurrentLimit=16, activeSfx=new Set();
 
     // meta do loop
@@ -163,26 +177,26 @@
     }
     const curves = makeEqualPowerCurves(128);
 
-    function ensureContext(){
-      if(!ctx){
-        ctx = new (window.AudioContext || window.webkitAudioContext)();
-    
-        // crie TODOS os nós de ganho
-        masterGain = ctx.createGain();
-        musicGain  = ctx.createGain();
-        sfxGain    = ctx.createGain();
-    
-        // valores iniciais
-        masterGain.gain.value = 1;
-        musicGain.gain.value  = musicTargetVol; // respeita o alvo definido
-        sfxGain.gain.value    = 1;
-    
-        // conexões
-        musicGain.connect(masterGain);
-        sfxGain.connect(masterGain);
-        masterGain.connect(ctx.destination);
-      }
-    }
+   function ensureContext(){
+  if(!ctx){
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+    // crie TODOS os nós
+    masterGain = ctx.createGain();
+    musicGain  = ctx.createGain();
+    sfxGain    = ctx.createGain();
+
+    // volumes iniciais (0–1)
+    masterGain.gain.value = 1;
+    musicGain.gain.value  = musicTargetVol; // ver item #2
+    sfxGain.gain.value    = 1;
+
+    // conexões
+    musicGain.connect(masterGain);
+    sfxGain.connect(masterGain);
+    masterGain.connect(ctx.destination);
+  }
+}
 
     async function fetchAB(u){ const r=await fetch(u); if(!r.ok) throw new Error('Falha ao buscar '+u); return await r.arrayBuffer(); }
     async function decode(u){ ensureContext(); const ab=await fetchAB(u); return await ctx.decodeAudioData(ab); }
@@ -191,33 +205,47 @@
     function pick(a){ return a[0]||null; }
 
     function scheduleOne(when, offset, dur){
-      const src = ctx.createBufferSource(); src.buffer=currentMusicBuf;
-      const g = ctx.createGain(); src.connect(g); g.connect(musicGain);
+  const src = ctx.createBufferSource(); src.buffer = currentMusicBuf;
+  src.playbackRate.value = musicRate;          // <<< NOVO
 
-      const fi = Math.min(CROSSFADE_SEC, dur*0.5);
-      const fo = Math.min(CROSSFADE_SEC, dur*0.5);
+  const g = ctx.createGain(); src.connect(g); g.connect(musicGain);
 
-      g.gain.setValueAtTime(0, when);
-      g.gain.setValueCurveAtTime(curves.fadeIn, when, fi);
-      g.gain.setValueAtTime(1, when+fi);
-      g.gain.setValueCurveAtTime(curves.fadeOut, when+dur-fo, fo);
+  // duração em tempo real (parede) = segundos do buffer / rate
+  const segWall = Math.max(0.001, dur / musicRate);
+  const fi = Math.min(CROSSFADE_SEC, segWall * 0.5);
+  const fo = Math.min(CROSSFADE_SEC, segWall * 0.5);
 
-      // console.log("SEG", {when, offset, dur, fi, fo}); // opcional p/ depurar
-      src.start(when, offset, dur);
-      src.onended = () => { try{ src.disconnect(); g.disconnect(); }catch(_){} };
-    }
+  g.gain.setValueAtTime(0, when);
+  g.gain.setValueCurveAtTime(curves.fadeIn, when, fi);
+  g.gain.setValueAtTime(1, when+fi);
+  g.gain.setValueCurveAtTime(curves.fadeOut, when+segWall-fo, fo);
+
+  src.start(when, offset, dur);
+
+  activeSeg.add(src);
+  src.onended = () => { activeSeg.delete(src); try{ src.disconnect(); g.disconnect(); }catch(_){} };
+}
+
+
 
     function stopScheduler(){ playing=false; if (schedId){ clearInterval(schedId); schedId=null; } }
     function startScheduler(){
       stopScheduler(); playing=true;
       schedId=setInterval(()=>{ if(!playing||!currentMusicBuf) return;
         const now=t();
-        while(nextWhen < now + SCHEDULE_AHEAD_SEC){
-          scheduleOne(nextWhen, nextOffset, nextLen);
-          nextWhen  = nextWhen + nextLen - CROSSFADE_SEC;
-          nextOffset= loopStart;
-          nextLen   = loopLen;
-        }
+        while (nextWhen < now + SCHEDULE_AHEAD_SEC) {
+  // agenda o segmento atual
+  scheduleOne(nextWhen, nextOffset, nextLen);
+
+  // calcula tempo "de parede" do segmento, dado o rate atual
+  const segWall = Math.max(0.001, nextLen / musicRate);
+
+  // prepara o próximo
+  nextWhen   = nextWhen + segWall - CROSSFADE_SEC;
+  nextOffset = loopStart;
+  nextLen    = loopLen;
+}
+
       }, LOOKAHEAD_SEC*1000);
     }
 
@@ -292,62 +320,99 @@
         console.log('[AudioManager] state:', window.AudioDiag());
       },
 
-      playMusic({fade=0.5}={}){
-        if(!unlocked){ console.warn('chame unlock() após gesto'); return; }
-        if(useMediaElement){ if(!mediaEl) return; mediaEl.volume=musicGain.gain.value; mediaEl.play().catch(()=>{}); return; }
-        if(!currentMusicBuf) return;
+     playMusic({fade=0.5}={}) {
+  if (!unlocked) { console.warn('chame unlock() após gesto'); return; }
+  if (useMediaElement) { /* ... */ return; }
+  if (!currentMusicBuf) return;
 
-        loopStart = musicMeta.loopStart;
-        loopEnd   = musicMeta.loopEnd ?? currentMusicBuf.duration;
-        loopLen   = Math.max(0.001, loopEnd - loopStart);
+  // >>> NOVO: garantir que nada antigo está tocando
+  stopScheduler();
+  killSegments();
 
-        let offset = musicPauseOffset ? (musicPauseOffset % loopLen) + loopStart : loopStart;
-        if (offset < loopStart || offset >= loopEnd) offset = loopStart;
+  loopStart = musicMeta.loopStart;
+  loopEnd   = musicMeta.loopEnd ?? currentMusicBuf.duration;
+  loopLen   = Math.max(0.001, loopEnd - loopStart);
 
-        nextOffset = offset;
-        nextLen    = Math.max(0.001, loopEnd - offset);
-        nextWhen   = t() + 0.02;
+  let offset = musicPauseOffset ? (musicPauseOffset % loopLen) + loopStart : loopStart;
+  if (offset < loopStart || offset >= loopEnd) offset = loopStart;
 
-        if (fade > 0) {
-          musicGain.gain.setValueAtTime(0, t());
-          // rampa até o volume-alvo, não até o valor atual (que pode ser 0)
-          musicGain.gain.linearRampToValueAtTime(musicTargetVol, t() + fade);
-        } else {
-          musicGain.gain.setValueAtTime(musicTargetVol, t());
-        }
+  nextOffset = offset;
+  nextLen    = Math.max(0.001, loopEnd - offset);
+  nextWhen   = t() + 0.02;
+
+  if (fade > 0) {
+    musicGain.gain.setValueAtTime(0, t());
+    musicGain.gain.linearRampToValueAtTime(musicTargetVol, t() + fade);
+  } else {
+    musicGain.gain.setValueAtTime(musicTargetVol, t());
+  }
+
+  musicStartTime = t() - (offset - loopStart);
+  musicPauseOffset = 0;
+
+  scheduleOne(nextWhen, nextOffset, nextLen);
+const segWall = Math.max(0.001, nextLen / musicRate); // ✅ usa tempo real
+nextWhen   = nextWhen + segWall - CROSSFADE_SEC;
+nextOffset = loopStart;
+nextLen    = loopLen;
 
 
-        musicStartTime = t() - (offset - loopStart);
-        musicPauseOffset = 0;
+  startScheduler();
+  updateBadge();
+}
 
-        scheduleOne(nextWhen, nextOffset, nextLen);
-        nextWhen  = nextWhen + nextLen - CROSSFADE_SEC;
-        nextOffset= loopStart;
-        nextLen   = loopLen;
-        startScheduler(); updateBadge();
-      },
 
-      pauseMusic({fade=0.25}={}){
-        if(useMediaElement){ if(!mediaEl) return;
-          if(fade>0){ const start=mediaEl.volume,step=1/30; let x=0; const iv=setInterval(()=>{ x+=step; mediaEl.volume=Math.max(0,start*(1-x/fade)); if(x>=fade){ clearInterval(iv); mediaEl.pause(); mediaEl.volume=start; } },33);} else mediaEl.pause();
-          return;
-        }
-        if(!currentMusicBuf) return;
+     pauseMusic({fade=0.25}={}) {
+  if (useMediaElement) { /* ... como já está ... */ return; }
+  if (!currentMusicBuf) return;
 
-        const elapsed = t() - musicStartTime;
-        const inner   = ((elapsed % loopLen) + loopLen) % loopLen;
-        musicPauseOffset = inner;
+  const elapsed = t() - musicStartTime;
+  // quanto “andou” dentro do loop em segundos de buffer
+const inner = ((elapsed * musicRate) % loopLen + loopLen) % loopLen;
+musicPauseOffset = inner;
 
-        if (fade > 0) {
-          musicGain.gain.cancelScheduledValues(t());
-          musicGain.gain.setValueAtTime(musicGain.gain.value, t());
-          musicGain.gain.linearRampToValueAtTime(0, t() + fade);
-          setTimeout(()=>{ stopScheduler(); }, Math.max(1, fade*1000));
-        } else {
-          musicGain.gain.setValueAtTime(0, t());
-          stopScheduler();
-        }
-      },
+  if (fade > 0) {
+    musicGain.gain.cancelScheduledValues(t());
+    musicGain.gain.setValueAtTime(musicGain.gain.value, t());
+    musicGain.gain.linearRampToValueAtTime(0, t() + fade);
+    setTimeout(() => {
+      stopScheduler();
+      killSegments();           // >>> NOVO
+    }, Math.max(1, fade*1000));
+  } else {
+    musicGain.gain.setValueAtTime(0, t());
+    stopScheduler();
+    killSegments();             // >>> NOVO
+  }
+}
+
+setMusicRate(r){
+  r = clamp(r, MIN_RATE, MAX_RATE);
+
+  // <audio> de fallback
+  if (useMediaElement){
+    musicRate = r;
+    if (mediaEl) mediaEl.playbackRate = r;
+    updateBadge();
+    return;
+  }
+
+  if (!currentMusicBuf){ musicRate = r; return; }
+
+  // calcula a posição musical atual com o rate antigo
+  const now = t();
+  const elapsed = now - musicStartTime;
+  const inner = ((elapsed * musicRate) % loopLen + loopLen) % loopLen;
+  musicPauseOffset = inner;
+
+  musicRate = r;
+
+  // reinicia limpo no mesmo ponto, com micro‑fade
+  stopScheduler();
+  killSegments();
+  this.playMusic({fade:0.05});
+  updateBadge();
+},
 
       async crossfadeTo(srcs,fade=1.0,loop={}){
         ensureContext();
@@ -392,9 +457,17 @@
       },
 
       setSfxVolume(v){    ramp(sfxGain.gain,v,0.01);    },
-
-      handleVisibility(){ if(document.hidden){ AudioManager.pauseMusic({fade:0.2}); } else { setTimeout(()=>AudioManager.playMusic({fade:0.3}),100); } },
-      state(){ return {unlocked, ctxState:ctx?.state, usingMediaElement:useMediaElement, buffersLoaded:buffers.size}; }
+let wasPlayingBeforeHide = false;
+     handleVisibility(){
+  if (document.hidden) {
+    wasPlayingBeforeHide = playing;           // só retomar se estava tocando
+    this.pauseMusic({fade:0.2});
+  } else {
+    if (wasPlayingBeforeHide) {
+      setTimeout(() => this.playMusic({fade:0.3}), 100);
+    }
+  }
+}
     };
   })();
   // === /AUDIO MANAGER ===
@@ -416,7 +489,15 @@
       });
     }catch(e){ console.warn('Preload de áudio falhou:', e); }
   })();
-  document.addEventListener('visibilitychange', AudioManager.handleVisibility);
+  handleVisibility(){
+  if (document.hidden) {
+    wasPlayingBeforeHide = playing;
+    AudioManager.pauseMusic({fade:0.2});
+  } else if (wasPlayingBeforeHide) {
+    setTimeout(() => AudioManager.playMusic({fade:0.3}), 100);
+  }
+}
+
   // === /PRELOAD DE ÁUDIO ===
 
   // === Spawn Config ===
@@ -683,10 +764,33 @@
   };
 
   function loop(){ if(!state.running) return; requestAnimationFrame(loop); update(); draw(); }
-
+let lastAppliedRate = BASE_RATE; // fora da função update()
+  function rateForLevel(lvl){
+  const steps = Math.floor(Math.max(1, lvl - 1) / LEVELS_PER_STEP);
+  return clamp(BASE_RATE + steps * RATE_STEP, MIN_RATE, MAX_RATE);
+}
   function update(){
     state.t++;
+    function rateForLevel(lvl){
+  const steps = Math.floor(Math.max(1, lvl - 1) / LEVELS_PER_STEP);
+  return clamp(BASE_RATE + steps * RATE_STEP, MIN_RATE, MAX_RATE);
+}
+
+
+
+// dentro de update(), após calcular state.level:
+const desiredRate = rateForLevel(state.level);
+if (Math.abs(desiredRate - lastAppliedRate) > 1e-4){
+  AudioManager.setMusicRate(desiredRate);
+  lastAppliedRate = desiredRate;
+}
     state.level = 1 + Math.floor(state.coffee/3);
+
+const desiredRate = rateForLevel(state.level);
+if (Math.abs(desiredRate - lastAppliedRate) > 1e-4){
+  AudioManager.setMusicRate(desiredRate);
+  lastAppliedRate = desiredRate;
+}
 
     state.editor.x += state.editor.vx * speedMult();
     if(state.editor.x<16 || state.editor.x>W-16-state.editor.w){ state.editor.vx*=-1; state.editor.x=clamp(state.editor.x,16,W-16-state.editor.w); }
