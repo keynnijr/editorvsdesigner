@@ -334,11 +334,10 @@ function getMusicLevelTrigger(level) {
 
         if (!currentMusicBuf) return;
 
-        stopScheduler(); killSegments();
-
-        let loopStart = musicMeta.loopStart;
-        let loopEnd   = musicMeta.loopEnd ?? currentMusicBuf.duration;
-        let loopLen   = Math.max(0.001, loopEnd - loopStart);
+             stopScheduler(); killSegments();
+              loopStart = musicMeta.loopStart;
+              loopEnd   = (musicMeta.loopEnd ?? currentMusicBuf.duration);
+              loopLen   = Math.max(0.001, loopEnd - loopStart);
 
         let offset = musicPauseOffset ? (musicPauseOffset % loopLen) + loopStart : loopStart;
         if (offset < loopStart || offset >= loopEnd) offset = loopStart;
@@ -785,6 +784,7 @@ const musicLevelTrigger = getMusicLevelTrigger(state.level);
 </script>
 </body>
 </html>
+
 
 
 
