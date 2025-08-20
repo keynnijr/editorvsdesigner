@@ -120,7 +120,8 @@
   const ctx = cvs.getContext('2d');
   const ui = { start:byId('startBtn'), reset:byId('resetBtn'), mute:byId('muteBtn'), left:byId('left'), right:byId('right') };
 // No topo do script, adicione:
-let lastMusicLevelTrigger = 0;
+let lastMusicLevelTrigger = 1;
+
 // Função para calcular o trigger de nível (a cada 2 níveis)
 function getMusicLevelTrigger(level) {
   return Math.floor((level - 1) / MUSIC_SPEED.LEVELS_PER_STEP); // LEVELS_PER_STEP = 2
@@ -169,7 +170,10 @@ function getMusicLevelTrigger(level) {
     let schedId=null;
     let nextWhen=0, nextOffset=0, nextLen=0, loopLen=0, loopStart=0, loopEnd=0;
 
-    let CROSSFADE_SEC = 0.05;
+    let CROSSFADE_SEC = 0.02;
+    // coloque estes dois no topo do AudioManager (junto do CROSSFADE_SEC)
+    const EPSILON_TIME = 1e-4;       // 0.1 ms de folga para não "encostar"
+    const MIN_SEG_WALL = 0.012;      // não fazer crossfade se o segmento < 12 ms
 
     function makeEqualPowerCurves(samples=128){
       const fadeIn = new Float32Array(samples), fadeOut= new Float32Array(samples);
@@ -199,47 +203,63 @@ function getMusicLevelTrigger(level) {
     function pick(a){ return a[0]||null; }
 
     function scheduleOne(when, offset, dur){
-      const src = ctx.createBufferSource(); src.buffer = currentMusicBuf;
-      src.playbackRate.value = musicRate;
-      const g = ctx.createGain(); src.connect(g); g.connect(musicGain);
+       const src = ctx.createBufferSource();
+        src.buffer = currentMusicBuf;
+        src.playbackRate.value = musicRate;
+      
+        const g = ctx.createGain();
+        src.connect(g); g.connect(musicGain);
 
       const segWall = Math.max(0.001, dur / musicRate);
-      const fi = Math.min(CROSSFADE_SEC, segWall * 0.5);
-      const fo = Math.min(CROSSFADE_SEC, segWall * 0.5);
-      if(segWall < fi + fo) return;
-      g.gain.setValueAtTime(0, when);
-      g.gain.setValueCurveAtTime(curves.fadeIn, when, fi);
-      g.gain.setValueAtTime(1, when+fi);
-      g.gain.setValueCurveAtTime(curves.fadeOut, when+segWall-fo, fo);
+      if (segWall <= MIN_SEG_WALL) {
+        g.gain.setValueAtTime(1, when);
+        src.start(when, offset, dur);
+        activeSeg.add(src);
+        src.onended = () => { activeSeg.delete(src); try{ src.disconnect(); g.disconnect(); }catch(_){} };
+        return;
+      }
+             // tamanhos dos fades com uma margem para não encostar
+        const fi = Math.min(CROSSFADE_SEC, segWall * 0.45);  // 45% do segmento
+        const fo = Math.min(CROSSFADE_SEC, segWall * 0.45);
+        const fadeOutStart = when + segWall - fo;
+    // fade-in
+  g.gain.setValueAtTime(0, when);
+  // use linear ramps (evita 'overlaps' em alguns navegadores)
+  g.gain.linearRampToValueAtTime(1, when + fi);
 
-      src.start(when, offset, dur);
+  // pequena folga antes do fade-out
+  g.gain.setValueAtTime(1, Math.max(when + fi + EPSILON_TIME, when + fi));
 
-      activeSeg.add(src);
-      src.onended = () => { activeSeg.delete(src); try{ src.disconnect(); g.disconnect(); }catch(_){} };
-    }
+  // fade-out
+  g.gain.linearRampToValueAtTime(0, when + segWall);
 
+  src.start(when, offset, dur);
+
+  activeSeg.add(src);
+  src.onended = () => { activeSeg.delete(src); try{ src.disconnect(); g.disconnect(); }catch(_){} };
+}
     function stopScheduler(){ playing=false; if (schedId){ clearInterval(schedId); schedId=null; } }
     function startScheduler(){
       stopScheduler(); playing=true;
       schedId = setInterval(() => {
         if(!playing || !currentMusicBuf) return;
         const now=t();
-        while (nextWhen < now + SCHEDULE_AHEAD_SEC) {
-          const segWall = Math.max(0.001, nextLen / musicRate);
-      const fi = Math.min(CROSSFADE_SEC, segWall * 0.5);
-      const fo = Math.min(CROSSFADE_SEC, segWall * 0.5);
-      if(segWall < fi + fo) {
-        // Pule esse agendamento para evitar erro
-        nextWhen += 0.05; // Ou aguarde um pouquinho
-        continue;
-      }
-          scheduleOne(nextWhen, nextOffset, nextLen)
-          nextWhen   = nextWhen + segWall - CROSSFADE_SEC;
-          nextOffset = loopStart;
-          nextLen    = loopLen;
-        }
-      }, LOOKAHEAD_SEC*1000);
+       while (nextWhen < now + SCHEDULE_AHEAD_SEC) {
+      // agenda o segmento atual
+      scheduleOne(nextWhen, nextOffset, nextLen);
+
+      // avança usando tempo de parede do segmento
+      const segWall = Math.max(0.001, nextLen / musicRate);
+
+      // protege contra regressão de tempo (quando rate muda)
+      const advance = Math.max(segWall - CROSSFADE_SEC, MIN_SEG_WALL);
+
+      nextWhen  = nextWhen + advance;
+      nextOffset = loopStart;
+      nextLen    = loopLen;
     }
+  }, LOOKAHEAD_SEC * 1000);
+}
 
     function updateBadge(){
       let el=document.getElementById('audio-badge');
@@ -647,53 +667,55 @@ function getMusicLevelTrigger(level) {
     return clamp(MUSIC_SPEED.BASE + steps * MUSIC_SPEED.STEP, MUSIC_SPEED.MIN, MUSIC_SPEED.MAX);
   }
 
-  // Substitua o trecho do update() por este:
-function update() {
-  state.t++;
-  state.level = 1 + Math.floor(state.coffee / 3);
-
-  // Música: só muda a velocidade se atingir novo trigger de 2 níveis
-  const musicLevelTrigger = getMusicLevelTrigger(state.level);
+  function update(){
+    state.t++;
+    state.level = 1 + Math.floor(state.coffee/3);
+const musicLevelTrigger = getMusicLevelTrigger(state.level);
   if (musicLevelTrigger !== lastMusicLevelTrigger) {
     const desiredRate = rateForLevel(state.level);
-    AudioManager.setMusicRate(desiredRate); // faz crossfade para nova velocidade
+    AudioManager.setMusicRate(desiredRate); // reinicia com crossfade
     lastMusicLevelTrigger = musicLevelTrigger;
   }
+    const desiredRate = rateForLevel(state.level);
+    if (Math.abs(desiredRate - lastAppliedRate) > 1e-4){
+      AudioManager.setMusicRate(desiredRate);
+      lastAppliedRate = desiredRate;
+    }
 
-  state.editor.x += state.editor.vx * speedMult();
-  if(state.editor.x<16 || state.editor.x>W-16-state.editor.w){
-    state.editor.vx*=-1; state.editor.x=clamp2(state.editor.x,16,W-16-state.editor.w);
-  }
+    state.editor.x += state.editor.vx * speedMult();
+    if(state.editor.x<16 || state.editor.x>W-16-state.editor.w){
+      state.editor.vx*=-1; state.editor.x=clamp2(state.editor.x,16,W-16-state.editor.w);
+    }
 
-  const spawnRate = Math.max(24, (80 - state.level*5) / speedMult());
-  if(state.t % Math.floor(spawnRate) === 0) spawn();
+    const spawnRate = Math.max(24, (80 - state.level*5) / speedMult());
+    if(state.t % Math.floor(spawnRate) === 0) spawn();
 
-  const p = state.player;
-  p.vx = p.dir;
-  const v = PLAYER_BASE_SPEED * (1 + (state.level - 1) * PLAYER_LEVEL_MULT);
-  p.x += p.vx * v;
+    const p = state.player;
+    p.vx = p.dir;
+    const v = PLAYER_BASE_SPEED * (1 + (state.level - 1) * PLAYER_LEVEL_MULT);
+    p.x += p.vx * v;
 
-  if (p.x <= 16){ p.x = 16; p.dir = 1; }
-  else if (p.x >= W-16-p.w){ p.x = W-16-p.w; p.dir = -1; }
+    if (p.x <= 16){ p.x = 16; p.dir = 1; }
+    else if (p.x >= W-16-p.w){ p.x = W-16-p.w; p.dir = -1; }
 
-  for(const it of state.items){ it.x += it.sway * speedMult()*0.6; it.y += it.vy * speedMult(); }
+    for(const it of state.items){ it.x += it.sway * speedMult()*0.6; it.y += it.vy * speedMult(); }
 
-  for(let i=state.items.length-1;i>=0;i--){
-    const it=state.items[i];
-    if(it.y>H+60){ state.items.splice(i,1); continue; }
-    if(rect({x:p.x,y:p.y,w:p.w,h:p.h},{x:it.x,y:it.y,w:it.w,h:it.h})){
-      state.items.splice(i,1);
-      if (it.type === 'coffee'){ state.coffee++; state.score += 5; AudioManager.playSfx('click',{volume:0.8}); }
-      else if (it.type === 'pizza'){
-        if (state.lives < CONFIG.maxLives) state.lives++; else state.score += 10;
-        AudioManager.playSfx('click',{volume:0.8});
-      } else {
-        state.lives--; AudioManager.playSfx('hit',{volume:1.0});
-        if (state.lives <= 0) { gameOver(); break; }
+    for(let i=state.items.length-1;i>=0;i--){
+      const it=state.items[i];
+      if(it.y>H+60){ state.items.splice(i,1); continue; }
+      if(rect({x:p.x,y:p.y,w:p.w,h:p.h},{x:it.x,y:it.y,w:it.w,h:it.h})){
+        state.items.splice(i,1);
+        if (it.type === 'coffee'){ state.coffee++; state.score += 5; AudioManager.playSfx('click',{volume:0.8}); }
+        else if (it.type === 'pizza'){
+          if (state.lives < CONFIG.maxLives) state.lives++; else state.score += 10;
+          AudioManager.playSfx('click',{volume:0.8});
+        } else {
+          state.lives--; AudioManager.playSfx('hit',{volume:1.0});
+          if (state.lives <= 0) { gameOver(); break; }
+        }
       }
     }
   }
-}
 
   function gameOver(){
     state.running = false;
@@ -759,8 +781,5 @@ function update() {
 </script>
 </body>
 </html>
-
-
-
 
 
