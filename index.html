@@ -119,7 +119,13 @@
   const cvs = document.getElementById('game');
   const ctx = cvs.getContext('2d');
   const ui = { start:byId('startBtn'), reset:byId('resetBtn'), mute:byId('muteBtn'), left:byId('left'), right:byId('right') };
+// No topo do script, adicione:
+let lastMusicLevelTrigger = 1;
 
+// Função para calcular o trigger de nível (a cada 2 níveis)
+function getMusicLevelTrigger(level) {
+  return Math.floor((level - 1) / MUSIC_SPEED.LEVELS_PER_STEP); // LEVELS_PER_STEP = 2
+}
   // Bloqueia setas/space de interferirem (scroll/histórico)
   addEventListener('keydown', e=>{
     if (['ArrowLeft','ArrowRight',' '].includes(e.key) || (e.altKey && (e.key==='ArrowLeft'||e.key==='ArrowRight')))
@@ -638,7 +644,12 @@
   function update(){
     state.t++;
     state.level = 1 + Math.floor(state.coffee/3);
-
+const musicLevelTrigger = getMusicLevelTrigger(state.level);
+  if (musicLevelTrigger !== lastMusicLevelTrigger) {
+    const desiredRate = rateForLevel(state.level);
+    AudioManager.setMusicRate(desiredRate); // reinicia com crossfade
+    lastMusicLevelTrigger = musicLevelTrigger;
+  }
     const desiredRate = rateForLevel(state.level);
     if (Math.abs(desiredRate - lastAppliedRate) > 1e-4){
       AudioManager.setMusicRate(desiredRate);
@@ -744,3 +755,4 @@
 </script>
 </body>
 </html>
+
