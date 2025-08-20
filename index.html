@@ -153,7 +153,7 @@ const AudioManager = (() => {
   let ctx=null, unlocked=false;
   let masterGain, musicGain, sfxGain;
   
-  let musicTargetVol=0.8, musicRate=0.8;
+  let musicTargetVol=0.8, musicRate=0.2;
   const buffers=new Map();
   let currentMusicBuf=null, musicSource=null;
   
@@ -275,8 +275,9 @@ const AudioManager = (() => {
       }
     },
 
+    // *** Versão CORRIGIDA de setMusicRate ***
     setMusicRate(r){
-      r = clamp(r, 0.5, 2.0);
+      r = clamp(r, 0.2, 2.0); // <-- Novo valor mínimo de 0.2
       musicRate = r;
       if (musicSource && isPlaying) {
         // Apenas ajusta a velocidade do som que já está tocando. Sem cortes!
@@ -559,17 +560,9 @@ const AudioManager = (() => {
   function update(){
     state.t++;
     state.level = 1 + Math.floor(state.coffee/3);
-const musicLevelTrigger = getMusicLevelTrigger(state.level);
-  if (musicLevelTrigger !== lastMusicLevelTrigger) {
-    const desiredRate = rateForLevel(state.level);
-    AudioManager.setMusicRate(desiredRate); // reinicia com crossfade
-    lastMusicLevelTrigger = musicLevelTrigger;
-  }
-    const desiredRate = rateForLevel(state.level);
-    if (Math.abs(desiredRate - lastAppliedRate) > 1e-4){
-      AudioManager.setMusicRate(desiredRate);
-      lastAppliedRate = desiredRate;
-    }
+    // A cada nível, a música acelera um pouco
+    const desiredRate = MUSIC_SPEED.BASE + (state.level - 1) * MUSIC_SPEED.STEP;
+    AudioManager.setMusicRate(clamp(desiredRate, MUSIC_SPEED.MIN, MUSIC_SPEED.MAX));
 
     state.editor.x += state.editor.vx * speedMult();
     if(state.editor.x<16 || state.editor.x>W-16-state.editor.w){
@@ -670,4 +663,5 @@ const musicLevelTrigger = getMusicLevelTrigger(state.level);
 </script>
 </body>
 </html>
+
 
