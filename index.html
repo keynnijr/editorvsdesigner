@@ -169,7 +169,7 @@ function getMusicLevelTrigger(level) {
     let schedId=null;
     let nextWhen=0, nextOffset=0, nextLen=0, loopLen=0, loopStart=0, loopEnd=0;
 
-    let CROSSFADE_SEC = 0.02;
+    let CROSSFADE_SEC = 0.05;
 
     function makeEqualPowerCurves(samples=128){
       const fadeIn = new Float32Array(samples), fadeOut= new Float32Array(samples);
@@ -760,6 +760,7 @@ function update() {
 </script>
 </body>
 </html>
+
 
 
 
