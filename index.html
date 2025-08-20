@@ -149,297 +149,269 @@ function getMusicLevelTrigger(level) {
   const MUSIC_SPEED = { BASE:0.8, STEP:0.1, LEVELS_PER_STEP:2, MIN:0.5, MAX:2.0 };
   const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
 
-  // === AUDIO MANAGER ===
-  const AudioManager = (() => {
-    let musicRate = MUSIC_SPEED.BASE;
-    const activeSeg = new Set();
-    function killSegments(){ for(const n of Array.from(activeSeg)){ try{ n.stop(0); }catch(_){} } activeSeg.clear(); }
+ // === AUDIO MANAGER (crossfade sólido) ===
+const AudioManager = (() => {
+  // ---- constantes de timing / crossfade
+  const LOOKAHEAD_SEC       = 0.050; // checagem do scheduler
+  const SCHEDULE_AHEAD_SEC  = 1.000; // janela de agendamento
+  const MIN_AHEAD           = 0.200; // NUNCA agendar a menos que 200ms no futuro
+  const CROSSFADE_SEC       = 0.180; // duração do overlap audível
+  const MIN_SEG_WALL        = 0.020; // segmento mínimo (anti‑glitch)
+  const EPSILON_TIME        = 1e-4;
 
-    let ctx=null, unlocked=false, masterGain, musicGain, sfxGain;
-    let useMediaElement=false, mediaEl=null, mediaElSrcs=[];
-    let musicTargetVol = 0.8;
-    const buffers=new Map(), sfxConcurrentLimit=16, activeSfx=new Set();
+  // ---- estado básico
+  let ctx=null, unlocked=false;
+  let masterGain, musicGain, sfxGain;
+  let useMediaElement=false, mediaEl=null;
+  let musicTargetVol=0.8, musicRate=0.8; // começa em “slow motion”
+  const buffers=new Map(), activeSfx=new Set();
+  const activeSeg=new Set();
+  let currentMusicBuf=null;
 
-    let musicMeta={loopStart:0, loopEnd:null, loopStartSamples:null, loopEndSamples:null, epsilonSec:0};
-    let currentMusicBuf=null;
-    let musicStartTime=0, musicPauseOffset=0;
-    let playing=false;
+  // meta do loop
+  const musicMeta = { loopStart:0, loopEnd:null, epsilonSec:0 };
 
-    const LOOKAHEAD_SEC = 0.025;
-    const SCHEDULE_AHEAD_SEC = 0.30;
-    let schedId=null;
-    let nextWhen=0, nextOffset=0, nextLen=0, loopLen=0, loopStart=0, loopEnd=0;
+  // timeline
+  let schedId=null, playing=false;
+  let nextWhen=0, nextOffset=0, nextLen=0;
+  let loopStart=0, loopEnd=0, loopLen=0;
+  let musicStartTime=0, musicPauseOffset=0;
 
-    let CROSSFADE_SEC = 0.12;
-    const MIN_AHEAD     = 0.06; // nunca agendar a menos que 60 ms no futuro
-    // coloque estes dois no topo do AudioManager (junto do CROSSFADE_SEC)
-    const EPSILON_TIME = 1e-4;       // 0.1 ms de folga para não "encostar"
-    const MIN_SEG_WALL = 0.012;      // não fazer crossfade se o segmento < 12 ms
-
-    function makeEqualPowerCurves(samples=128){
-      const fadeIn = new Float32Array(samples), fadeOut= new Float32Array(samples);
-      for(let i=0;i<samples;i++){ const x=i/(samples-1); fadeIn[i]=Math.sin(x*Math.PI/2); fadeOut[i]=Math.cos(x*Math.PI/2); }
-      return {fadeIn, fadeOut};
+  // utils
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const t=()=>ctx?ctx.currentTime:0;
+  const pick=a=>a[0]||null;
+  function killSegments(){ for(const n of Array.from(activeSeg)) { try{ n.stop(0); }catch(_){} } activeSeg.clear(); }
+  function ensureContext(){
+    if (!ctx){
+      ctx = new (window.AudioContext||window.webkitAudioContext)();
+      masterGain = ctx.createGain();
+      musicGain  = ctx.createGain();
+      sfxGain    = ctx.createGain();
+      masterGain.gain.value = 1;
+      musicGain.gain.value  = musicTargetVol;
+      sfxGain.gain.value    = 1;
+      musicGain.connect(masterGain);
+      sfxGain.connect(masterGain);
+      masterGain.connect(ctx.destination);
     }
-    const curves = makeEqualPowerCurves(128);
+  }
+  async function fetchAB(u){ const r=await fetch(u); if(!r.ok) throw new Error('Falha ao buscar '+u); return await r.arrayBuffer(); }
+  async function decode(u){ ensureContext(); const ab=await fetchAB(u); return await ctx.decodeAudioData(ab); }
 
-    function ensureContext(){
-      if(!ctx){
-        ctx = new (window.AudioContext || window.webkitAudioContext)();
-        masterGain = ctx.createGain();
-        musicGain  = ctx.createGain();
-        sfxGain    = ctx.createGain();
-        masterGain.gain.value = 1;
-        musicGain.gain.value  = musicTargetVol;
-        sfxGain.gain.value    = 1;
-        musicGain.connect(masterGain);
-        sfxGain.connect(masterGain);
-        masterGain.connect(ctx.destination);
+  function scheduleOne(when, offset, dur){
+    const src = ctx.createBufferSource();
+    src.buffer = currentMusicBuf;
+    src.playbackRate.value = musicRate;
+
+    const g = ctx.createGain();
+    src.connect(g); g.connect(musicGain);
+
+    const segWall = Math.max(MIN_SEG_WALL, dur / musicRate);
+    const fi = Math.min(CROSSFADE_SEC, segWall * 0.5); // fade‑in
+    const fo = Math.min(CROSSFADE_SEC, segWall * 0.5); // fade‑out
+
+    // Fade‑in linear seguro
+    g.gain.cancelScheduledValues(when);
+    g.gain.setValueAtTime(0, when);
+    g.gain.linearRampToValueAtTime(1, when + fi);
+    g.gain.setValueAtTime(1, when + fi + EPSILON_TIME);
+    // Fade‑out linear até o final do segmento
+    g.gain.linearRampToValueAtTime(0, when + segWall);
+
+    src.start(when, offset, dur);
+
+    activeSeg.add(src);
+    src.onended = () => { activeSeg.delete(src); try{ src.disconnect(); g.disconnect(); }catch(_){} };
+  }
+
+  function stopScheduler(){ playing=false; if (schedId){ clearInterval(schedId); schedId=null; } }
+
+  function startScheduler(){
+    stopScheduler();
+    playing = true;
+
+    schedId = setInterval(() => {
+      if (!playing || !currentMusicBuf) return;
+
+      const now = t();
+      // garante que o próximo sempre tem folga
+      if (nextWhen < now + MIN_AHEAD) nextWhen = now + MIN_AHEAD;
+
+      while (nextWhen < now + SCHEDULE_AHEAD_SEC) {
+        scheduleOne(nextWhen, nextOffset, nextLen);
+
+        const segWall  = Math.max(MIN_SEG_WALL, nextLen / musicRate);
+        const overlap  = Math.min(CROSSFADE_SEC, segWall * 0.5); // quanto “come” do fim
+        const advance  = Math.max(segWall - overlap, MIN_SEG_WALL);
+
+        nextWhen   = nextWhen + advance; // inicia antes do fim (overlap)
+        nextOffset = loopStart;          // a partir do loopStart
+        nextLen    = loopLen;            // tamanho padrão do laço
       }
-    }
-    async function fetchAB(u){ const r=await fetch(u); if(!r.ok) throw new Error('Falha ao buscar '+u); return await r.arrayBuffer(); }
-    async function decode(u){ ensureContext(); const ab=await fetchAB(u); return await ctx.decodeAudioData(ab); }
-    function t(){ return ctx?ctx.currentTime:0; }
-    function rampParam(p,v,s=0.001){ const n=t(); p.cancelScheduledValues(n); p.setValueAtTime(p.value,n); p.linearRampToValueAtTime(v,n+Math.max(0.001,s)); }
-    function pick(a){ return a[0]||null; }
+    }, LOOKAHEAD_SEC * 1000);
+  }
 
-    function scheduleOne(when, offset, dur){
-       const src = ctx.createBufferSource();
-        src.buffer = currentMusicBuf;
-        src.playbackRate.value = musicRate;
-      
-        const g = ctx.createGain();
-        src.connect(g); g.connect(musicGain);
+  function recalcLoopMeta(){
+    loopStart = musicMeta.loopStart;
+    loopEnd   = musicMeta.loopEnd ?? currentMusicBuf.duration;
+    loopLen   = Math.max(0.001, loopEnd - loopStart);
+  }
 
-      const segWall = Math.max(0.001, dur / musicRate);
-      if (segWall <= MIN_SEG_WALL) {
-        g.gain.setValueAtTime(1, when);
-        src.start(when, offset, dur);
-        activeSeg.add(src);
-        src.onended = () => { activeSeg.delete(src); try{ src.disconnect(); g.disconnect(); }catch(_){} };
+  return {
+    async unlock(){ ensureContext(); if (ctx.state==='suspended'){ try{ await ctx.resume(); }catch{} } unlocked=true; },
+
+    async preload(m={}){
+      ensureContext();
+      const wantBuffer = !!m.music?.forceBuffer;
+
+      if (m.music?.src?.length){
+        let dec=null;
+        for (const u of m.music.src){ try{ dec=await decode(u); break; }catch(_){} }
+        if (dec){ currentMusicBuf=dec; useMediaElement=false; }
+        else{
+          if (wantBuffer) throw new Error('forceBuffer=true mas nenhum src decodificou.');
+          useMediaElement=true; mediaEl=new Audio();
+          mediaEl.loop=true; mediaEl.preload='auto'; mediaEl.src=pick(m.music.src);
+        }
+
+        musicMeta.loopStart = m.music.loopStart ?? 0;
+        musicMeta.loopEnd   = m.music.loopEnd   ?? null;
+
+        if (currentMusicBuf){
+          const sr = currentMusicBuf.sampleRate||44100;
+          musicMeta.epsilonSec = 1/sr;
+          if (musicMeta.loopEnd == null) musicMeta.loopEnd = currentMusicBuf.duration - musicMeta.epsilonSec;
+          musicMeta.loopStart = Math.max(0, Math.min(musicMeta.loopStart, currentMusicBuf.duration - 0.001));
+          musicMeta.loopEnd   = Math.max(musicMeta.loopStart + 0.001, Math.min(musicMeta.loopEnd, currentMusicBuf.duration));
+          recalcLoopMeta();
+        }
+      }
+
+      if (m.sfx){
+        await Promise.all(Object.entries(m.sfx).map(async([n,srcs])=>{
+          let d=null; for(const u of srcs){ try{ d=await decode(u); break; }catch(_){} }
+          if (d) buffers.set(n,d); else console.warn(`SFX '${n}' não carregou`);
+        }));
+      }
+    },
+
+    playMusic({fade=0.5}={}){
+      if (!unlocked){ console.warn('chame unlock() após gesto'); return; }
+
+      if (useMediaElement){
+        if (!mediaEl) return;
+        mediaEl.playbackRate = musicRate;
+        mediaEl.volume = 0; mediaEl.play().catch(()=>{});
+        if (fade>0){
+          const t0=performance.now(), dur=fade*1000;
+          const iv=setInterval(()=>{ const p=Math.min(1,(performance.now()-t0)/dur); mediaEl.volume=musicTargetVol*p; if(p>=1) clearInterval(iv); },33);
+        } else mediaEl.volume = musicTargetVol;
         return;
       }
-             // tamanhos dos fades com uma margem para não encostar
-        const fi = Math.min(CROSSFADE_SEC, segWall * 0.5);  // 45% do segmento
-        const fo = Math.min(CROSSFADE_SEC, segWall * 0.5);
-        const fadeOutStart = when + segWall - fo;
-    
-      // cancela qualquer agendamento no ganho desse SEGMENTO (só por segurança)
-  g.gain.cancelScheduledValues(when);
-      // fade-in
-  g.gain.setValueAtTime(0, when);
-  // use linear ramps (evita 'overlaps' em alguns navegadores)
-  g.gain.linearRampToValueAtTime(1, when + fi);
 
-  // pequena folga antes do fade-out
-  g.gain.setValueAtTime(1, Math.max(when + fi + EPSILON_TIME, when + fi));
+      if (!currentMusicBuf) return;
 
-  // fade-out
-  g.gain.linearRampToValueAtTime(0, when + segWall);
+      stopScheduler(); killSegments(); recalcLoopMeta();
 
-  src.start(when, offset, dur);
+      let offset = musicPauseOffset ? (musicPauseOffset % loopLen) + loopStart : loopStart;
+      if (offset < loopStart || offset >= loopEnd) offset = loopStart;
 
-  activeSeg.add(src);
-  src.onended = () => { activeSeg.delete(src); try{ src.disconnect(); g.disconnect(); }catch(_){} };
-}
-    function stopScheduler(){ playing=false; if (schedId){ clearInterval(schedId); schedId=null; } }
-    function startScheduler(){
-      stopScheduler(); playing=true;
-      schedId = setInterval(() => {
-        if(!playing || !currentMusicBuf) return;
-        const now=t();
-         // se por jitter o próximo caiu "no presente", empurra para frente
-    if (nextWhen < now + MIN_AHEAD) nextWhen = now + MIN_AHEAD;
-       while (nextWhen < now + SCHEDULE_AHEAD_SEC) {
-      // agenda o segmento atual
-      scheduleOne(nextWhen, nextOffset, nextLen);
+      nextOffset = offset;
+      nextLen    = Math.max(0.001, loopEnd - offset);
+      nextWhen   = t() + MIN_AHEAD; // folga garantida
 
-      // avança usando tempo de parede do segmento
-      const segWall = Math.max(0.001, nextLen / musicRate);
+      // fade no bus da música
+      if (fade > 0) {
+        musicGain.gain.setValueAtTime(0, t());
+        musicGain.gain.linearRampToValueAtTime(musicTargetVol, t() + fade);
+      } else {
+        musicGain.gain.setValueAtTime(musicTargetVol, t());
+      }
 
-      // protege contra regressão de tempo (quando rate muda)
-         const SAFE_XFADE = Math.min(CROSSFADE_SEC, segWall * 0.5);
-      const advance = Math.max(segWall - CROSSFADE_SEC, MIN_SEG_WALL);
+      musicStartTime   = t() - (offset - loopStart);
+      musicPauseOffset = 0;
 
-      nextWhen  = nextWhen + advance;
+      // agenda dois blocos já no início para garantir overlap com fade‑in audível
+      const nowStart = nextWhen;
+      scheduleOne(nowStart, nextOffset, nextLen);
+      const segWall   = Math.max(MIN_SEG_WALL, nextLen / musicRate);
+      const overlap   = Math.min(CROSSFADE_SEC, segWall * 0.5);
+      const advance   = Math.max(segWall - overlap, MIN_SEG_WALL);
+
+      nextWhen   = nowStart + advance;
       nextOffset = loopStart;
       nextLen    = loopLen;
-    }
-  }, LOOKAHEAD_SEC * 1000);
-}
 
-    function updateBadge(){
-      let el=document.getElementById('audio-badge');
-      if(!el){
-        el=document.createElement('div'); el.id='audio-badge';
-        el.style.cssText='position:fixed;right:8px;bottom:8px;background:#111c;border:1px solid #fff3;color:#fff;padding:6px 8px;border-radius:6px;font:12px/1.2 monospace;z-index:99999';
-        document.body.appendChild(el);
+      // segundo bloco antecipado
+      scheduleOne(nextWhen, nextOffset, nextLen);
+      const segWall2 = Math.max(MIN_SEG_WALL, nextLen / musicRate);
+      const advance2 = Math.max(segWall2 - overlap, MIN_SEG_WALL);
+      nextWhen   = nextWhen + advance2;
+      nextOffset = loopStart; // padrão
+      nextLen    = loopLen;
+
+      startScheduler();
+    },
+
+    pauseMusic({fade=0.25}={}){
+      if (useMediaElement){
+        if (!mediaEl) return;
+        const start=mediaEl.volume, t0=performance.now(), dur=fade*1000;
+        const iv=setInterval(()=>{ const p=Math.min(1,(performance.now()-t0)/dur); mediaEl.volume=start*(1-p); if(p>=1){ clearInterval(iv); mediaEl.pause(); mediaEl.volume=start; } },33);
+        return;
       }
-      el.textContent = `buf:${!!currentMusicBuf} media:${useMediaElement} rate:${musicRate.toFixed(2)}`;
-    }
+      if (!currentMusicBuf) return;
 
-    let wasPlayingBeforeHide=false;
+      const elapsed = t() - musicStartTime;
+      const inner   = ((elapsed * musicRate) % loopLen + loopLen) % loopLen;
+      musicPauseOffset = inner;
 
-    return {
-      async unlock(){ ensureContext(); if(ctx.state==='suspended'){ try{ await ctx.resume(); }catch{} } unlocked=true; },
-
-      async preload(m={}){
-        ensureContext();
-        const wantBuffer = !!m.music?.forceBuffer;
-        if(m.music?.src?.length){
-          let dec=null, tried=[];
-          for(const u of m.music.src){
-            try{ dec=await decode(u); tried.push([u,'ok']); break; }
-            catch(e){ tried.push([u,'fail']); }
-          }
-          if(dec){ currentMusicBuf=dec; useMediaElement=false; }
-          else{
-            if (wantBuffer) throw new Error('forceBuffer=true mas nenhum src decodificou.');
-            useMediaElement=true; mediaElSrcs=m.music.src;
-            mediaEl=new Audio(); mediaEl.loop=true; mediaEl.preload='auto'; mediaEl.src=pick(mediaElSrcs);
-          }
-
-          musicMeta.loopStart = m.music.loopStart ?? 0;
-          musicMeta.loopEnd   = m.music.loopEnd   ?? null;
-
-          if (currentMusicBuf){
-            const sr=currentMusicBuf.sampleRate||44100;
-            musicMeta.epsilonSec = 1/sr;
-            if (musicMeta.loopEnd == null) musicMeta.loopEnd = currentMusicBuf.duration - musicMeta.epsilonSec;
-            else musicMeta.loopEnd = Math.max(0, musicMeta.loopEnd - musicMeta.epsilonSec);
-            musicMeta.loopStart = Math.max(0, Math.min(musicMeta.loopStart, currentMusicBuf.duration - 0.001));
-            musicMeta.loopEnd   = Math.max(musicMeta.loopStart + 0.001, Math.min(musicMeta.loopEnd, currentMusicBuf.duration));
-          }
-        }
-
-        if(m.sfx){
-          await Promise.all(Object.entries(m.sfx).map(async([n,srcs])=>{
-            let d=null; for(const u of srcs){ try{ d=await decode(u); break; }catch(e){} }
-            if(d) buffers.set(n,d); else console.warn(`SFX '${n}' não carregou`);
-          }));
-        }
-        updateBadge();
-      },
-
-      playMusic({fade=0.5}={}){
-        if(!unlocked){ console.warn('chame unlock() após gesto'); return; }
-
-        if (useMediaElement){
-          if (!mediaEl) return;
-          mediaEl.playbackRate = musicRate;
-          if (fade>0){
-            mediaEl.volume = 0; mediaEl.play().catch(()=>{});
-            const t0=performance.now(), dur=fade*1000;
-            const iv=setInterval(()=>{ const p=Math.min(1,(performance.now()-t0)/dur); mediaEl.volume=musicTargetVol*p; if(p>=1) clearInterval(iv); },33);
-          } else { mediaEl.volume = musicTargetVol; mediaEl.play().catch(()=>{}); }
-          return;
-        }
-
-        if (!currentMusicBuf) return;
-
-             stopScheduler(); killSegments();
-              loopStart = musicMeta.loopStart;
-              loopEnd   = (musicMeta.loopEnd ?? currentMusicBuf.duration);
-              loopLen   = Math.max(0.001, loopEnd - loopStart);
-
-        let offset = musicPauseOffset ? (musicPauseOffset % loopLen) + loopStart : loopStart;
-        if (offset < loopStart || offset >= loopEnd) offset = loopStart;
-
-        nextOffset = offset;
-        nextLen    = Math.max(0.001, loopEnd - offset);
-        nextWhen   = t() + MIN_AHEAD;
-
-        if (fade > 0) {
-          musicGain.gain.setValueAtTime(0, t());
-          musicGain.gain.linearRampToValueAtTime(musicTargetVol, t() + fade);
-        } else {
-          musicGain.gain.setValueAtTime(musicTargetVol, t());
-        }
-
-        musicStartTime = t() - (offset - loopStart);
-        musicPauseOffset = 0;
-
-        // guarda para startScheduler
-        window.__loopStart = loopStart; window.__loopEnd = loopEnd; window.__loopLen = loopLen;
-
-        scheduleOne(nextWhen, nextOffset, nextLen);
-        const segWall = Math.max(0.001, nextLen / musicRate);
-        const SAFE_XFD = Math.min(CROSSFADE_SEC, segWall * 0.5);
-        nextWhen   = nextWhen + segWall - CROSSFADE_SEC;
-        nextOffset = loopStart;
-        nextLen    = loopLen;
-
-        startScheduler();
-        updateBadge();
-      },
-
-      pauseMusic({fade=0.25}={}){
-        if (useMediaElement){
-          if (!mediaEl) return;
-          if (fade>0){
-            const start=mediaEl.volume, t0=performance.now(), dur=fade*1000;
-            const iv=setInterval(()=>{ const p=Math.min(1,(performance.now()-t0)/dur); mediaEl.volume=start*(1-p); if(p>=1){ clearInterval(iv); mediaEl.pause(); mediaEl.volume=start; } },33);
-          } else mediaEl.pause();
-          return;
-        }
-
-        if (!currentMusicBuf) return;
-
-        const loopLen = window.__loopLen ?? (musicMeta.loopEnd - musicMeta.loopStart);
-        const elapsed = t() - musicStartTime;
-        const inner = ((elapsed * musicRate) % loopLen + loopLen) % loopLen;
-        musicPauseOffset = inner;
-
-        if (fade > 0) {
-          musicGain.gain.cancelScheduledValues(t());
-          musicGain.gain.setValueAtTime(musicGain.gain.value, t());
-          musicGain.gain.linearRampToValueAtTime(0, t() + fade);
-          setTimeout(()=>{ stopScheduler(); killSegments(); }, Math.max(1, fade*1000));
-        } else {
-          musicGain.gain.setValueAtTime(0, t());
-          stopScheduler(); killSegments();
-        }
-      },
-
-      setMusicRate(r){
-        r = clamp(r, MUSIC_SPEED.MIN, MUSIC_SPEED.MAX);
-        if (useMediaElement){ musicRate = r; if (mediaEl) mediaEl.playbackRate=r; updateBadge(); return; }
-        if (!currentMusicBuf){ musicRate=r; return; }
-        const loopLen = window.__loopLen ?? (musicMeta.loopEnd - musicMeta.loopStart);
-        const now = t(); const elapsed = now - musicStartTime;
-        musicPauseOffset = ((elapsed * musicRate) % loopLen + loopLen) % loopLen;
-        musicRate = r;
+      if (fade > 0) {
+        musicGain.gain.cancelScheduledValues(t());
+        musicGain.gain.setValueAtTime(musicGain.gain.value, t());
+        musicGain.gain.linearRampToValueAtTime(0, t() + fade);
+        setTimeout(()=>{ stopScheduler(); killSegments(); }, Math.max(1, fade*1000));
+      } else {
+        musicGain.gain.setValueAtTime(0, t());
         stopScheduler(); killSegments();
-        this.playMusic({fade:0.05});
-        updateBadge();
-      },
-
-      playSfx(n,{volume=1,detune=0}={}){
-        if(!unlocked) return;
-        const b=buffers.get(n); if(!b) return;
-        if(activeSfx.size>=sfxConcurrentLimit) return;
-        const src=ctx.createBufferSource(); src.buffer=b;
-        if(src.detune) src.detune.value=detune;
-        const g=ctx.createGain(); g.gain.value=clamp(volume,0,1);
-        src.connect(g); g.connect(sfxGain); src.start(0);
-        activeSfx.add(src); src.onended=()=>activeSfx.delete(src);
-      },
-
-      setMasterVolume(v){ rampParam(masterGain.gain,clamp(v,0,1),0.05); },
-      setMusicVolume(v){
-        musicTargetVol = clamp(v,0,1);
-        const now = t();
-        musicGain.gain.cancelScheduledValues(now);
-        musicGain.gain.setValueAtTime(musicGain.gain.value, now);
-        musicGain.gain.linearRampToValueAtTime(musicTargetVol, now + 0.05);
-      },
-
-      handleVisibility(){
-        if (document.hidden){ this._wasPlaying = playing; this.pauseMusic({fade:0.2}); }
-        else if (this._wasPlaying){ setTimeout(()=>this.playMusic({fade:0.3}),100); }
       }
-    };
-  })();
+    },
+
+    setMusicRate(r){
+      r = clamp(r, 0.5, 2.0);
+      musicRate = r;
+
+      if (useMediaElement){ if (mediaEl) mediaEl.playbackRate = r; return; }
+      if (!currentMusicBuf) return;
+
+      const elapsed = t() - musicStartTime;
+      musicPauseOffset = ((elapsed * musicRate) % loopLen + loopLen) % loopLen;
+
+      stopScheduler(); killSegments();
+      this.playMusic({fade:0.05}); // retoma no novo rate, com micro‑fade
+    },
+
+    playSfx(n,{volume=1,detune=0}={}){
+      if (!unlocked) return;
+      const b=buffers.get(n); if(!b) return;
+      const src=ctx.createBufferSource(); src.buffer=b;
+      if (src.detune) src.detune.value=detune;
+      const g=ctx.createGain(); g.gain.value=clamp(volume,0,1);
+      src.connect(g); g.connect(sfxGain); src.start(0);
+      activeSfx.add(src); src.onended=()=>activeSfx.delete(src);
+    },
+
+    setMasterVolume(v){ masterGain.gain.setValueAtTime(clamp(v,0,1), t()); },
+    setMusicVolume(v){ musicTargetVol = clamp(v,0,1); musicGain.gain.linearRampToValueAtTime(musicTargetVol, t()+0.05); },
+
+    handleVisibility(){
+      if (document.hidden){ this._wasPlaying = playing; this.pauseMusic({fade:0.2}); }
+      else if (this._wasPlaying){ setTimeout(()=>this.playMusic({fade:0.3}), 120); }
+    }
+  };
+})();
+
 
   document.addEventListener('visibilitychange', AudioManager.handleVisibility.bind(AudioManager));
 
@@ -788,6 +760,7 @@ const musicLevelTrigger = getMusicLevelTrigger(state.level);
 </script>
 </body>
 </html>
+
 
 
 
