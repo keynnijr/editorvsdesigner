@@ -170,7 +170,8 @@ function getMusicLevelTrigger(level) {
     let schedId=null;
     let nextWhen=0, nextOffset=0, nextLen=0, loopLen=0, loopStart=0, loopEnd=0;
 
-    let CROSSFADE_SEC = 0.02;
+    let CROSSFADE_SEC = 0.12;
+    const MIN_AHEAD     = 0.06; // nunca agendar a menos que 60 ms no futuro
     // coloque estes dois no topo do AudioManager (junto do CROSSFADE_SEC)
     const EPSILON_TIME = 1e-4;       // 0.1 ms de folga para não "encostar"
     const MIN_SEG_WALL = 0.012;      // não fazer crossfade se o segmento < 12 ms
@@ -219,8 +220,8 @@ function getMusicLevelTrigger(level) {
         return;
       }
              // tamanhos dos fades com uma margem para não encostar
-        const fi = Math.min(CROSSFADE_SEC, segWall * 0.45);  // 45% do segmento
-        const fo = Math.min(CROSSFADE_SEC, segWall * 0.45);
+        const fi = Math.min(CROSSFADE_SEC, segWall * 0.5);  // 45% do segmento
+        const fo = Math.min(CROSSFADE_SEC, segWall * 0.5);
         const fadeOutStart = when + segWall - fo;
     
       // cancela qualquer agendamento no ganho desse SEGMENTO (só por segurança)
@@ -247,6 +248,8 @@ function getMusicLevelTrigger(level) {
       schedId = setInterval(() => {
         if(!playing || !currentMusicBuf) return;
         const now=t();
+         // se por jitter o próximo caiu "no presente", empurra para frente
+    if (nextWhen < now + MIN_AHEAD) nextWhen = now + MIN_AHEAD;
        while (nextWhen < now + SCHEDULE_AHEAD_SEC) {
       // agenda o segmento atual
       scheduleOne(nextWhen, nextOffset, nextLen);
@@ -255,7 +258,7 @@ function getMusicLevelTrigger(level) {
       const segWall = Math.max(0.001, nextLen / musicRate);
 
       // protege contra regressão de tempo (quando rate muda)
-         const SAFE_XFADE = Math.min(CROSSFADE_SEC, segWall * 0.45);
+         const SAFE_XFADE = Math.min(CROSSFADE_SEC, segWall * 0.5);
       const advance = Math.max(segWall - CROSSFADE_SEC, MIN_SEG_WALL);
 
       nextWhen  = nextWhen + advance;
@@ -344,7 +347,7 @@ function getMusicLevelTrigger(level) {
 
         nextOffset = offset;
         nextLen    = Math.max(0.001, loopEnd - offset);
-        nextWhen   = t() + 0.02;
+        nextWhen   = t() + MIN_AHEAD;
 
         if (fade > 0) {
           musicGain.gain.setValueAtTime(0, t());
@@ -361,6 +364,7 @@ function getMusicLevelTrigger(level) {
 
         scheduleOne(nextWhen, nextOffset, nextLen);
         const segWall = Math.max(0.001, nextLen / musicRate);
+        const SAFE_XFD = Math.min(CROSSFADE_SEC, segWall * 0.5);
         nextWhen   = nextWhen + segWall - CROSSFADE_SEC;
         nextOffset = loopStart;
         nextLen    = loopLen;
@@ -784,6 +788,7 @@ const musicLevelTrigger = getMusicLevelTrigger(state.level);
 </script>
 </body>
 </html>
+
 
 
 
