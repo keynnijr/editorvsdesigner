@@ -136,6 +136,7 @@
   const AudioManager = (() => {
     let ctx=null, unlocked=false, masterGain, musicGain, sfxGain;
     let useMediaElement=false, mediaEl=null, mediaElSrcs=[];
+    let musicTargetVol = 0.8;
     const buffers=new Map(), sfxConcurrentLimit=16, activeSfx=new Set();
 
     // meta do loop
@@ -165,7 +166,9 @@
     function ensureContext(){
       if(!ctx){
         ctx=new (window.AudioContext||window.webkitAudioContext)();
-        masterGain=ctx.createGain(); musicGain=ctx.createGain(); sfxGain=ctx.createGain();
+        musicGain=ctx.createGain();
+        musicGain.gain.value = musicTargetVol; // em vez de 0.8 fixo
+
         masterGain.gain.value=1; musicGain.gain.value=0.8; sfxGain.gain.value=1;
         musicGain.connect(masterGain); sfxGain.connect(masterGain); masterGain.connect(ctx.destination);
       }
@@ -294,11 +297,14 @@
         nextLen    = Math.max(0.001, loopEnd - offset);
         nextWhen   = t() + 0.02;
 
-        if (fade>0){
-          const target=musicGain.gain.value;
+        if (fade > 0) {
           musicGain.gain.setValueAtTime(0, t());
-          ramp(musicGain.gain, target, fade);
+          // rampa até o volume-alvo, não até o valor atual (que pode ser 0)
+          musicGain.gain.linearRampToValueAtTime(musicTargetVol, t() + fade);
+        } else {
+          musicGain.gain.setValueAtTime(musicTargetVol, t());
         }
+
 
         musicStartTime = t() - (offset - loopStart);
         musicPauseOffset = 0;
@@ -321,9 +327,16 @@
         const inner   = ((elapsed % loopLen) + loopLen) % loopLen;
         musicPauseOffset = inner;
 
-        if(fade>0){ ramp(musicGain.gain, 0, fade); setTimeout(()=>{ stopScheduler(); }, Math.max(1, fade*1000)); }
-        else { stopScheduler(); }
-      },
+        if (fade > 0) {
+          musicGain.gain.cancelScheduledValues(t());
+          musicGain.gain.setValueAtTime(musicGain.gain.value, t());
+          musicGain.gain.linearRampToValueAtTime(0, t() + fade);
+          setTimeout(()=>{ stopScheduler(); }, Math.max(1, fade*1000));
+        } else {
+          musicGain.gain.setValueAtTime(0, t());
+          stopScheduler();
+        }
+
 
       async crossfadeTo(srcs,fade=1.0,loop={}){
         ensureContext();
@@ -358,7 +371,15 @@
       },
 
       setMasterVolume(v){ ramp(masterGain.gain,v,0.05); },
-      setMusicVolume(v){  ramp(musicGain.gain,v,0.05);  },
+      setMusicVolume(v){
+        musicTargetVol = Math.max(0, Math.min(1, v));
+        // aplica imediatamente (com uma rampinha curta)
+        const now = t();
+        musicGain.gain.cancelScheduledValues(now);
+        musicGain.gain.setValueAtTime(musicGain.gain.value, now);
+        musicGain.gain.linearRampToValueAtTime(musicTargetVol, now + 0.05);
+      },
+
       setSfxVolume(v){    ramp(sfxGain.gain,v,0.01);    },
 
       handleVisibility(){ if(document.hidden){ AudioManager.pauseMusic({fade:0.2}); } else { setTimeout(()=>AudioManager.playMusic({fade:0.3}),100); } },
