@@ -446,7 +446,23 @@
   }
 
   const speedMult = ()=> 1 + Math.floor(state.coffee/3)*0.05;
-
+function draw(){
+    ctx.clearRect(0,0,W,H);
+    drawBg();
+    ctx.save(); ctx.globalAlpha=0.08; ctx.fillStyle='#000'; ctx.font='80px monospace'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('LVL '+state.level, W/2, H/2); ctx.restore();
+    drawSprite('editor', state.editor.x, state.editor.y, 48, 48);
+    drawSprite('designer', state.player.x, state.player.y, 48, 48);
+    for(const it of state.items){ drawSprite(it.type, it.x, it.y, 48, 48); }
+     if (state.blinkTime > 0) {
+    ctx.save();
+    ctx.globalAlpha = 0.5; // Transparência do efeito (ajuste este valor)
+    ctx.fillStyle = '#fff'; // Cor do piscar
+    ctx.fillRect(state.player.x, state.player.y, state.player.w, state.player.h);
+    ctx.restore();
+    state.blinkTime--; // Diminui o contador
+  }
+    drawHUD();
+  }
   function reset(){
     state.running=false; state.gameOver=false; state.t=0;
     state.score=0; state.coffee=0; state.level=1; state.lives=3;
@@ -641,23 +657,7 @@
     ctx.fillText(fmtClock(getElapsedMs(), false), W-24, 52);
   }
 
-  function draw(){
-    ctx.clearRect(0,0,W,H);
-    drawBg();
-    ctx.save(); ctx.globalAlpha=0.08; ctx.fillStyle='#000'; ctx.font='80px monospace'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('LVL '+state.level, W/2, H/2); ctx.restore();
-    drawSprite('editor', state.editor.x, state.editor.y, 48, 48);
-    drawSprite('designer', state.player.x, state.player.y, 48, 48);
-    for(const it of state.items){ drawSprite(it.type, it.x, it.y, 48, 48); }
-     if (state.blinkTime > 0) {
-    ctx.save();
-    ctx.globalAlpha = 0.5; // Transparência do efeito (ajuste este valor)
-    ctx.fillStyle = '#fff'; // Cor do piscar
-    ctx.fillRect(state.player.x, state.player.y, state.player.w, state.player.h);
-    ctx.restore();
-    state.blinkTime--; // Diminui o contador
-  }
-    drawHUD();
-  }
+  
 
   function drawStart(){ ctx.fillStyle='rgba(0,0,0,.25)'; ctx.fillRect(0,0,W,H); }
 
@@ -678,3 +678,4 @@
  </script>
 </body>
 </html>
+
