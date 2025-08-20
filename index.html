@@ -446,6 +446,29 @@
   }
 
   const speedMult = ()=> 1 + Math.floor(state.coffee/3)*0.05;
+   function drawBg(){ ctx.fillStyle='#d9bd93'; ctx.fillRect(0,0,W,H); }
+
+  function drawHUD(){
+    ctx.font = '24px monospace';
+    ctx.fillStyle = '#2b2a27';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    for(let i=0;i<state.lives;i++){
+      const totalW = state.lives*20 + (state.lives-1)*10;
+      const x = W/2 - totalW/2 + i*30;
+      const y = H-40;
+      drawSprite('heart', x, y, 20, 20);
+    }
+    drawSprite('coffee', 16, 40, 48, 48);
+    ctx.fillText('x '+state.coffee, 86, 52);
+    ctx.font = '20px monospace';
+    ctx.fillText(String(state.score).padStart(4,'0'), 86, 74);
+    ctx.font = '24px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(fmtClock(getElapsedMs(), false), W-24, 52);
+  }
+
+function drawStart(){ ctx.fillStyle='rgba(0,0,0,.25)'; ctx.fillRect(0,0,W,H); }
 function draw(){
     ctx.clearRect(0,0,W,H);
     drawBg();
@@ -635,32 +658,7 @@ function draw(){
     showGameOverHTML();
   }
 
-  function drawBg(){ ctx.fillStyle='#d9bd93'; ctx.fillRect(0,0,W,H); }
-
-  function drawHUD(){
-    ctx.font = '24px monospace';
-    ctx.fillStyle = '#2b2a27';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    for(let i=0;i<state.lives;i++){
-      const totalW = state.lives*20 + (state.lives-1)*10;
-      const x = W/2 - totalW/2 + i*30;
-      const y = H-40;
-      drawSprite('heart', x, y, 20, 20);
-    }
-    drawSprite('coffee', 16, 40, 48, 48);
-    ctx.fillText('x '+state.coffee, 86, 52);
-    ctx.font = '20px monospace';
-    ctx.fillText(String(state.score).padStart(4,'0'), 86, 74);
-    ctx.font = '24px monospace';
-    ctx.textAlign = 'right';
-    ctx.fillText(fmtClock(getElapsedMs(), false), W-24, 52);
-  }
-
-  
-
-  function drawStart(){ ctx.fillStyle='rgba(0,0,0,.25)'; ctx.fillRect(0,0,W,H); }
-
+ 
   // Game Over (HTML) já é usado; esta versão canvas não é necessária agora
 
   // Clique no canvas no GO para reiniciar (fallback)
@@ -678,4 +676,5 @@ function draw(){
  </script>
 </body>
 </html>
+
 
