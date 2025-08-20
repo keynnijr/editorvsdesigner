@@ -233,8 +233,7 @@ function getMusicLevelTrigger(level) {
         nextWhen += 0.05; // Ou aguarde um pouquinho
         continue;
       }
-          scheduleOne(nextWhen, nextOffset, nextLen);
-          const segWall = Math.max(0.001, nextLen / musicRate);
+          scheduleOne(nextWhen, nextOffset, nextLen)
           nextWhen   = nextWhen + segWall - CROSSFADE_SEC;
           nextOffset = loopStart;
           nextLen    = loopLen;
@@ -760,6 +759,7 @@ function update() {
 </script>
 </body>
 </html>
+
 
 
 
