@@ -667,12 +667,17 @@ function draw(){
     if (!state.gameOver) return;
     reset(); start();
   });
-
-  Promise.all(imageFiles.map(([n, f]) => loadImage(n, f))).then(() => { reset(); draw(); showMenu();});
+document.addEventListener('DOMContentLoaded', () => {
+  Promise.all(imageFiles.map(([n, f]) => loadImage(n, f))).then(() => {
+    reset();
+    draw();
+    showMenu();
+  });
   });
  </script>
 </body>
 </html>
+
 
 
 
