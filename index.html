@@ -79,7 +79,6 @@
   <div class="wrap">
     <canvas id="game" width="540" height="960" aria-label="Designer vs Editor (mobile)"></canvas>
     <div class="bar">
-      <button id="startBtn" class="btn">▶️ Jogar</button>
       <button id="muteBtn" class="btn">🔈</button>
       <button id="resetBtn" class="btn">⟲</button>
       <div id="goBackdrop" aria-hidden="true">
@@ -548,7 +547,6 @@ function draw(){
   function start(){
     if(state.gameOver) reset();
     state.running = true;
-    ui.start.textContent = '⏸︎ Pausar';
     document.getElementById('pauseBtn').textContent = '⏸️ Pause';
     AudioManager.playMusic({fade:0.6});
     timerStart();
@@ -558,13 +556,13 @@ function draw(){
   function togglePause(){
     state.running = !state.running;
     if (state.running){
-      ui.start.textContent = '⏸︎ Pausar';
+      document.getElementById('menuStartBtn').textContent = '⏸︎ Pausar';
       document.getElementById('pauseBtn').textContent = '⏸️ Pause';
       AudioManager.playMusic({fade:0.3});
       timerResume();
       loop();
     } else {
-      ui.start.textContent = '▶️ Continuar';
+      document.getElementById('menuStartBtn').textContent = '▶️ Continuar';
       document.getElementById('pauseBtn').textContent = '▶️ Continuar';
       AudioManager.pauseMusic({fade:0.2});
       timerPause();
@@ -667,13 +665,12 @@ function draw(){
     reset(); start();
   });
 
-  Promise.all(imageFiles.map(([n, f]) => loadImage(n, f))).then(() => {
-    reset(); draw(); showMenu();
-    });
+  Promise.all(imageFiles.map(([n, f]) => loadImage(n, f))).then(() => { reset(); draw(); showMenu();});
   })();
  </script>
 </body>
 </html>
+
 
 
 
