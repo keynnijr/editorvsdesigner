@@ -420,6 +420,8 @@ const AudioManager = (() => {
     running:false, gameOver:false, t:0, score:0, coffee:0, lives:3, level:1,
     player:{x:W/2-24,y:H-90,w:48,h:48,vx:1,dir:1},
     editor:{ x:W/2-24, y:PLAY_Y_MIN, w:48, h:48, vx:3 },
+    blinkTime: 0,
+    blinkDuration: 10,
     items:[],
     totalSpawns: 0
   };
@@ -582,19 +584,25 @@ const AudioManager = (() => {
 
     for(const it of state.items){ it.x += it.sway * speedMult()*0.6; it.y += it.vy * speedMult(); }
 
-    for(let i=state.items.length-1;i>=0;i--){
-      const it=state.items[i];
-      if(it.y>H+60){ state.items.splice(i,1); continue; }
-      if(rect({x:p.x,y:p.y,w:p.w,h:p.h},{x:it.x,y:it.y,w:it.w,h:it.h})){
-        state.items.splice(i,1);
-        if (it.type === 'coffee'){ state.coffee++; state.score += 5; AudioManager.playSfx('click',{volume:0.8}); }
-        else if (it.type === 'pizza'){
-          if (state.lives < CONFIG.maxLives) state.lives++; else state.score += 10;
-          AudioManager.playSfx('click',{volume:0.8});
-        } else {
-          state.lives--; AudioManager.playSfx('hit',{volume:1.0});
-          if (state.lives <= 0) { gameOver(); break; }
-        }
+   for(let i=state.items.length-1;i>=0;i--){
+    const it=state.items[i];
+    if(it.y>H+60){ state.items.splice(i,1); continue; }
+    if(rect({x:p.x,y:p.y,w:p.w,h:p.h},{x:it.x,y:it.y,w:it.h,h:it.h})){
+      state.items.splice(i,1);
+      if (it.type === 'coffee'){ 
+        state.coffee++; 
+        state.score += 5; 
+        AudioManager.playSfx('click',{volume:0.8});
+        state.blinkTime = state.blinkDuration; // Ativa o piscar
+      }
+      else if (it.type === 'pizza'){
+        if (state.lives < CONFIG.maxLives) state.lives++; else state.score += 10;
+        AudioManager.playSfx('click',{volume:0.8});
+        state.blinkTime = state.blinkDuration; // Ativa o piscar
+      } else {
+        state.lives--; 
+        AudioManager.playSfx('hit',{volume:1.0});
+        if (state.lives <= 0) { gameOver(); break; }
       }
     }
   }
@@ -642,6 +650,14 @@ const AudioManager = (() => {
     drawSprite('editor', state.editor.x, state.editor.y, 48, 48);
     drawSprite('designer', state.player.x, state.player.y, 48, 48);
     for(const it of state.items){ drawSprite(it.type, it.x, it.y, 48, 48); }
+     if (state.blinkTime > 0) {
+    ctx.save();
+    ctx.globalAlpha = 0.5; // Transparência do efeito (ajuste este valor)
+    ctx.fillStyle = '#fff'; // Cor do piscar
+    ctx.fillRect(state.player.x, state.player.y, state.player.w, state.player.h);
+    ctx.restore();
+    state.blinkTime--; // Diminui o contador
+  }
     drawHUD();
   }
 
@@ -663,5 +679,6 @@ const AudioManager = (() => {
 </script>
 </body>
 </html>
+
 
 
