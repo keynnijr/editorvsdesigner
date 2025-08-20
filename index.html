@@ -136,7 +136,7 @@
   const AudioManager = (() => {
     let ctx=null, unlocked=false, masterGain, musicGain, sfxGain;
     let useMediaElement=false, mediaEl=null, mediaElSrcs=[];
-    let musicTargetVol = 0.8;
+    let musicTargetVol = 5.0;
     const buffers=new Map(), sfxConcurrentLimit=16, activeSfx=new Set();
 
     // meta do loop
@@ -882,3 +882,4 @@
 </script>
 </body>
 </html>
+
