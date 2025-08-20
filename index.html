@@ -317,7 +317,7 @@
     try{
       await AudioManager.preload({
         music: { src: ['./audio/music.ogg','./audio/music.mp3'], forceBuffer: true },
-        sfx:   { click:['./audio/click.ogg','./audio/click.mp3'], hit:['./audio/hit.ogg','./audio/hit.mp3'] }
+        sfx:   { click:['./audio/click.ogg','./audio/click.mp3'], hit:['./audio/hit.ogg','./audio/hit.mp3'], hit:['./audio/gameover.ogg','./audio/gameover.mp3'] }
         });
     }catch(e){ console.warn('Preload de áudio falhou:', e); }
     }) ();
@@ -654,6 +654,7 @@ function draw(){
     state.running = false;
     state.gameOver = true;
     AudioManager.pauseMusic({fade:0.2});
+    AudioManager.playSfx('gameover',{volume:0.8});
     timerPause();
     const elapsed = getElapsedMs();
     if (elapsed > timer.best){ timer.best = elapsed; localStorage.setItem('best_survival_ms', String(timer.best)); }
@@ -683,6 +684,7 @@ document.addEventListener('DOMContentLoaded', () => {
  </script>
 </body>
 </html>
+
 
 
 
