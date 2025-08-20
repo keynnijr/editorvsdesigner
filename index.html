@@ -222,7 +222,10 @@ function getMusicLevelTrigger(level) {
         const fi = Math.min(CROSSFADE_SEC, segWall * 0.45);  // 45% do segmento
         const fo = Math.min(CROSSFADE_SEC, segWall * 0.45);
         const fadeOutStart = when + segWall - fo;
-    // fade-in
+    
+      // cancela qualquer agendamento no ganho desse SEGMENTO (só por segurança)
+  g.gain.cancelScheduledValues(when);
+      // fade-in
   g.gain.setValueAtTime(0, when);
   // use linear ramps (evita 'overlaps' em alguns navegadores)
   g.gain.linearRampToValueAtTime(1, when + fi);
@@ -252,6 +255,7 @@ function getMusicLevelTrigger(level) {
       const segWall = Math.max(0.001, nextLen / musicRate);
 
       // protege contra regressão de tempo (quando rate muda)
+         const SAFE_XFADE = Math.min(CROSSFADE_SEC, segWall * 0.45);
       const advance = Math.max(segWall - CROSSFADE_SEC, MIN_SEG_WALL);
 
       nextWhen  = nextWhen + advance;
@@ -781,5 +785,6 @@ const musicLevelTrigger = getMusicLevelTrigger(state.level);
 </script>
 </body>
 </html>
+
 
 
