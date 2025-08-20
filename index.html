@@ -670,11 +670,10 @@ function draw(){
   Promise.all(imageFiles.map(([n, f]) => loadImage(n, f))).then(() => {
     reset(); draw(); showMenu();
     });
-
-  }
   })();
  </script>
 </body>
 </html>
+
 
 
