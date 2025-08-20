@@ -115,7 +115,11 @@
   const W = 540, H = 960;
   const cvs = document.getElementById('game');
   const ctx = cvs.getContext('2d');
-  const ui = { start:byId('startBtn'), reset:byId('resetBtn'), mute:byId('muteBtn'), left:byId('left'), right:byId('right') };
+  const ui = { start: byId('menuStartBtn'),
+    reset: byId('resetBtn'),
+    mute: byId('muteBtn'),
+    left: byId('left'),
+    right: byId('right') };
   // No topo do script, adicione:
   let lastMusicLevelTrigger = 1;
 
@@ -671,6 +675,7 @@ function draw(){
  </script>
 </body>
 </html>
+
 
 
 
