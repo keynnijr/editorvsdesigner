@@ -640,7 +640,8 @@ function draw(){
         if (state.lives <= 0) { gameOver(); break; }
       }
     }
-  }
+    }      
+}
 
   function gameOver(){
     state.running = false;
@@ -666,11 +667,10 @@ function draw(){
   });
 
   Promise.all(imageFiles.map(([n, f]) => loadImage(n, f))).then(() => { reset(); draw(); showMenu();});
-  })();
+  });
  </script>
 </body>
 </html>
-
 
 
 
