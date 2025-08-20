@@ -33,6 +33,7 @@
     .bar{display:flex;gap:8px;align-items:center;justify-content:center;color:#fff;opacity:.9;margin-top:6px}
     .btn{background:var(--panel);border:2px solid #5a5348;border-radius:10px;padding:8px 12px;cursor:pointer}
     .btn:active{transform:translateY(1px)}
+    .btn:focus{outline:none}
     .touch{position:fixed;left:0;right:0;bottom:14px;display:flex;justify-content:center;gap:16px;pointer-events:auto}
     .tbtn{font-size:22px;width:64px;height:64px;border-radius:12px}
     /* --- Game Over HTML --- */
@@ -99,8 +100,8 @@
   </div>
 
   <div class="touch">
-    <button class="btn tbtn" id="left">⬅</button>
-    <button class="btn tbtn" id="right">➡</button>
+    <button class="btn tbtn" id="left"  tabindex="-1">⬅</button>
+    <button class="btn tbtn" id="right" tabindex="-1">➡</button>
   </div>
 
   <button id="pauseBtn" class="btn" style="
@@ -119,6 +120,12 @@
   const ctx = cvs.getContext('2d');
   const ui = { start:byId('startBtn'), reset:byId('resetBtn'), mute:byId('muteBtn'), left:byId('left'), right:byId('right') };
 
+  // Bloqueia setas/space de interferirem (scroll/histórico)
+  addEventListener('keydown', e=>{
+    if (['ArrowLeft','ArrowRight',' '].includes(e.key) || (e.altKey && (e.key==='ArrowLeft'||e.key==='ArrowRight')))
+      e.preventDefault();
+  }, {passive:false});
+
   // HTML de Game Over
   const go = { back: byId('goBackdrop'), restart: byId('restartBtn') };
   function showGameOverHTML(){ go.back.style.display = 'flex'; go.back.setAttribute('aria-hidden','false'); }
@@ -132,53 +139,33 @@
     instrText: document.getElementById('menuInstrText')
   };
 
-  // ===== Config global de velocidade da trilha (usada dentro/fora do AudioManager) =====
-  const MUSIC_SPEED = {
-    BASE: 0.8,          // slow motion inicial
-    STEP: 0.1,          // +0.1x por passo
-    LEVELS_PER_STEP: 2, // 1 passo a cada 2 níveis
-    MIN: 0.5,
-    MAX: 2.0
-  };
-  function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+  // ===== Config global da velocidade da trilha =====
+  const MUSIC_SPEED = { BASE:0.8, STEP:0.1, LEVELS_PER_STEP:2, MIN:0.5, MAX:2.0 };
+  const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
 
-  // === AUDIO MANAGER — scheduler + equal-power crossfade + velocidade dinâmica ===
+  // === AUDIO MANAGER ===
   const AudioManager = (() => {
-    // lê das configs globais
     let musicRate = MUSIC_SPEED.BASE;
-
-    // Segmentos ativos de música (para matar e evitar sobreposição)
     const activeSeg = new Set();
-    function killSegments() {
-      for (const node of Array.from(activeSeg)) {
-        try { node.stop(0); } catch(_) {}
-      }
-      activeSeg.clear();
-    }
+    function killSegments(){ for(const n of Array.from(activeSeg)){ try{ n.stop(0); }catch(_){} } activeSeg.clear(); }
 
-    // WebAudio
     let ctx=null, unlocked=false, masterGain, musicGain, sfxGain;
     let useMediaElement=false, mediaEl=null, mediaElSrcs=[];
     let musicTargetVol = 0.8;
     const buffers=new Map(), sfxConcurrentLimit=16, activeSfx=new Set();
 
-    // meta do loop
     let musicMeta={loopStart:0, loopEnd:null, loopStartSamples:null, loopEndSamples:null, epsilonSec:0};
-    // engine
     let currentMusicBuf=null;
     let musicStartTime=0, musicPauseOffset=0;
     let playing=false;
 
-    // scheduler
     const LOOKAHEAD_SEC = 0.025;
     const SCHEDULE_AHEAD_SEC = 0.30;
     let schedId=null;
     let nextWhen=0, nextOffset=0, nextLen=0, loopLen=0, loopStart=0, loopEnd=0;
 
-    // crossfade
     let CROSSFADE_SEC = 0.02;
 
-    // curva equal-power
     function makeEqualPowerCurves(samples=128){
       const fadeIn = new Float32Array(samples), fadeOut= new Float32Array(samples);
       for(let i=0;i<samples;i++){ const x=i/(samples-1); fadeIn[i]=Math.sin(x*Math.PI/2); fadeOut[i]=Math.cos(x*Math.PI/2); }
@@ -189,18 +176,12 @@
     function ensureContext(){
       if(!ctx){
         ctx = new (window.AudioContext || window.webkitAudioContext)();
-
-        // crie TODOS os nós
         masterGain = ctx.createGain();
         musicGain  = ctx.createGain();
         sfxGain    = ctx.createGain();
-
-        // volumes iniciais (0–1)
         masterGain.gain.value = 1;
         musicGain.gain.value  = musicTargetVol;
         sfxGain.gain.value    = 1;
-
-        // conexões
         musicGain.connect(masterGain);
         sfxGain.connect(masterGain);
         masterGain.connect(ctx.destination);
@@ -215,10 +196,8 @@
     function scheduleOne(when, offset, dur){
       const src = ctx.createBufferSource(); src.buffer = currentMusicBuf;
       src.playbackRate.value = musicRate;
-
       const g = ctx.createGain(); src.connect(g); g.connect(musicGain);
 
-      // duração em tempo "de parede" = segundos do buffer / rate
       const segWall = Math.max(0.001, dur / musicRate);
       const fi = Math.min(CROSSFADE_SEC, segWall * 0.5);
       const fo = Math.min(CROSSFADE_SEC, segWall * 0.5);
@@ -250,20 +229,17 @@
       }, LOOKAHEAD_SEC*1000);
     }
 
-    // badge de diagnóstico
-    function mountBadge(){
-      if (document.getElementById('audio-badge')) return;
-      const b=document.createElement('div'); b.id='audio-badge';
-      b.style.cssText='position:fixed;right:8px;bottom:8px;background:#111c;border:1px solid #fff3;color:#fff;padding:6px 8px;border-radius:6px;font:12px/1.2 monospace;z-index:99999';
-      document.body.appendChild(b);
-      updateBadge();
-    }
     function updateBadge(){
-      const el=document.getElementById('audio-badge'); if(!el) return;
-      el.textContent = `buf:${!!currentMusicBuf} media:${useMediaElement} loop:[${(loopStart??0).toFixed(3)}–${(loopEnd??0).toFixed(3)}] rate:${musicRate.toFixed(2)} cf:${(CROSSFADE_SEC*1000)|0}ms`;
+      let el=document.getElementById('audio-badge');
+      if(!el){
+        el=document.createElement('div'); el.id='audio-badge';
+        el.style.cssText='position:fixed;right:8px;bottom:8px;background:#111c;border:1px solid #fff3;color:#fff;padding:6px 8px;border-radius:6px;font:12px/1.2 monospace;z-index:99999';
+        document.body.appendChild(el);
+      }
+      el.textContent = `buf:${!!currentMusicBuf} media:${useMediaElement} rate:${musicRate.toFixed(2)}`;
     }
 
-    let wasPlayingBeforeHide = false;
+    let wasPlayingBeforeHide=false;
 
     return {
       async unlock(){ ensureContext(); if(ctx.state==='suspended'){ try{ await ctx.resume(); }catch{} } unlocked=true; },
@@ -277,28 +253,19 @@
             try{ dec=await decode(u); tried.push([u,'ok']); break; }
             catch(e){ tried.push([u,'fail']); }
           }
-          if(dec){
-            currentMusicBuf=dec; useMediaElement=false;
-          }else{
-            if (wantBuffer){
-              console.error('[AudioManager] Nenhum formato decodificou, e forceBuffer=true. Verifique codecs/paths.', tried);
-              throw new Error('forceBuffer=true mas nenhum src decodificou.');
-            }
+          if(dec){ currentMusicBuf=dec; useMediaElement=false; }
+          else{
+            if (wantBuffer) throw new Error('forceBuffer=true mas nenhum src decodificou.');
             useMediaElement=true; mediaElSrcs=m.music.src;
             mediaEl=new Audio(); mediaEl.loop=true; mediaEl.preload='auto'; mediaEl.src=pick(mediaElSrcs);
-            console.warn('[AudioManager] Caindo em <audio>. Crossfade não será aplicado.', tried);
           }
 
-          musicMeta.loopStartSamples = m.music.loopStartSamples ?? null;
-          musicMeta.loopEndSamples   = m.music.loopEndSamples   ?? null;
-          musicMeta.loopStart        = m.music.loopStart ?? 0;
-          musicMeta.loopEnd          = m.music.loopEnd   ?? null;
+          musicMeta.loopStart = m.music.loopStart ?? 0;
+          musicMeta.loopEnd   = m.music.loopEnd   ?? null;
 
           if (currentMusicBuf){
             const sr=currentMusicBuf.sampleRate||44100;
             musicMeta.epsilonSec = 1/sr;
-            if (musicMeta.loopStartSamples != null) musicMeta.loopStart = musicMeta.loopStartSamples/sr;
-            if (musicMeta.loopEndSamples   != null) musicMeta.loopEnd   = musicMeta.loopEndSamples/sr;
             if (musicMeta.loopEnd == null) musicMeta.loopEnd = currentMusicBuf.duration - musicMeta.epsilonSec;
             else musicMeta.loopEnd = Math.max(0, musicMeta.loopEnd - musicMeta.epsilonSec);
             musicMeta.loopStart = Math.max(0, Math.min(musicMeta.loopStart, currentMusicBuf.duration - 0.001));
@@ -312,43 +279,30 @@
             if(d) buffers.set(n,d); else console.warn(`SFX '${n}' não carregou`);
           }));
         }
-
-        mountBadge(); updateBadge();
+        updateBadge();
       },
 
       playMusic({fade=0.5}={}){
         if(!unlocked){ console.warn('chame unlock() após gesto'); return; }
 
-        // Fallback <audio>
         if (useMediaElement){
           if (!mediaEl) return;
           mediaEl.playbackRate = musicRate;
-          if (fade > 0){
-            const target = musicTargetVol;
-            mediaEl.volume = 0;
-            mediaEl.play().catch(()=>{});
-            const start = performance.now(), dur = fade*1000;
-            const iv = setInterval(()=> {
-              const p = Math.min(1, (performance.now()-start)/dur);
-              mediaEl.volume = target * p;
-              if (p>=1) clearInterval(iv);
-            }, 33);
-          } else {
-            mediaEl.volume = musicTargetVol;
-            mediaEl.play().catch(()=>{});
-          }
+          if (fade>0){
+            mediaEl.volume = 0; mediaEl.play().catch(()=>{});
+            const t0=performance.now(), dur=fade*1000;
+            const iv=setInterval(()=>{ const p=Math.min(1,(performance.now()-t0)/dur); mediaEl.volume=musicTargetVol*p; if(p>=1) clearInterval(iv); },33);
+          } else { mediaEl.volume = musicTargetVol; mediaEl.play().catch(()=>{}); }
           return;
         }
 
         if (!currentMusicBuf) return;
 
-        // inicia limpo
-        stopScheduler();
-        killSegments();
+        stopScheduler(); killSegments();
 
-        loopStart = musicMeta.loopStart;
-        loopEnd   = musicMeta.loopEnd ?? currentMusicBuf.duration;
-        loopLen   = Math.max(0.001, loopEnd - loopStart);
+        let loopStart = musicMeta.loopStart;
+        let loopEnd   = musicMeta.loopEnd ?? currentMusicBuf.duration;
+        let loopLen   = Math.max(0.001, loopEnd - loopStart);
 
         let offset = musicPauseOffset ? (musicPauseOffset % loopLen) + loopStart : loopStart;
         if (offset < loopStart || offset >= loopEnd) offset = loopStart;
@@ -367,6 +321,9 @@
         musicStartTime = t() - (offset - loopStart);
         musicPauseOffset = 0;
 
+        // guarda para startScheduler
+        window.__loopStart = loopStart; window.__loopEnd = loopEnd; window.__loopLen = loopLen;
+
         scheduleOne(nextWhen, nextOffset, nextLen);
         const segWall = Math.max(0.001, nextLen / musicRate);
         nextWhen   = nextWhen + segWall - CROSSFADE_SEC;
@@ -378,27 +335,19 @@
       },
 
       pauseMusic({fade=0.25}={}){
-        // Fallback <audio>
         if (useMediaElement){
           if (!mediaEl) return;
-          if (fade > 0){
-            const start = mediaEl.volume, target = 0, dur = fade*1000;
-            const t0 = performance.now();
-            const iv = setInterval(()=> {
-              const p = Math.min(1, (performance.now()-t0)/dur);
-              mediaEl.volume = start + (target-start)*p;
-              if (p>=1){ clearInterval(iv); mediaEl.pause(); mediaEl.volume = start; }
-            }, 33);
-          } else {
-            mediaEl.pause();
-          }
+          if (fade>0){
+            const start=mediaEl.volume, t0=performance.now(), dur=fade*1000;
+            const iv=setInterval(()=>{ const p=Math.min(1,(performance.now()-t0)/dur); mediaEl.volume=start*(1-p); if(p>=1){ clearInterval(iv); mediaEl.pause(); mediaEl.volume=start; } },33);
+          } else mediaEl.pause();
           return;
         }
 
         if (!currentMusicBuf) return;
 
+        const loopLen = window.__loopLen ?? (musicMeta.loopEnd - musicMeta.loopStart);
         const elapsed = t() - musicStartTime;
-        // deslocamento dentro do loop em segundos de BUFFER (compensa rate)
         const inner = ((elapsed * musicRate) % loopLen + loopLen) % loopLen;
         musicPauseOffset = inner;
 
@@ -409,35 +358,19 @@
           setTimeout(()=>{ stopScheduler(); killSegments(); }, Math.max(1, fade*1000));
         } else {
           musicGain.gain.setValueAtTime(0, t());
-          stopScheduler();
-          killSegments();
+          stopScheduler(); killSegments();
         }
       },
 
       setMusicRate(r){
         r = clamp(r, MUSIC_SPEED.MIN, MUSIC_SPEED.MAX);
-
-        // fallback <audio>
-        if (useMediaElement){
-          musicRate = r;
-          if (mediaEl) mediaEl.playbackRate = r;
-          updateBadge();
-          return;
-        }
-
-        if (!currentMusicBuf){ musicRate = r; return; }
-
-        // calcula posição musical com a taxa anterior
-        const now = t();
-        const elapsed = now - musicStartTime;
-        const inner = ((elapsed * musicRate) % loopLen + loopLen) % loopLen;
-        musicPauseOffset = inner;
-
+        if (useMediaElement){ musicRate = r; if (mediaEl) mediaEl.playbackRate=r; updateBadge(); return; }
+        if (!currentMusicBuf){ musicRate=r; return; }
+        const loopLen = window.__loopLen ?? (musicMeta.loopEnd - musicMeta.loopStart);
+        const now = t(); const elapsed = now - musicStartTime;
+        musicPauseOffset = ((elapsed * musicRate) % loopLen + loopLen) % loopLen;
         musicRate = r;
-
-        // reinicia limpo no mesmo ponto, com micro‑fade
-        stopScheduler();
-        killSegments();
+        stopScheduler(); killSegments();
         this.playMusic({fade:0.05});
         updateBadge();
       },
@@ -448,7 +381,7 @@
         if(activeSfx.size>=sfxConcurrentLimit) return;
         const src=ctx.createBufferSource(); src.buffer=b;
         if(src.detune) src.detune.value=detune;
-        const g=ctx.createGain(); g.gain.value=Math.max(0,Math.min(1,volume));
+        const g=ctx.createGain(); g.gain.value=clamp(volume,0,1);
         src.connect(g); g.connect(sfxGain); src.start(0);
         activeSfx.add(src); src.onended=()=>activeSfx.delete(src);
       },
@@ -463,38 +396,23 @@
       },
 
       handleVisibility(){
-        if (document.hidden){
-          wasPlayingBeforeHide = playing;
-          this.pauseMusic({fade:0.2});
-        } else {
-          if (wasPlayingBeforeHide){
-            setTimeout(() => this.playMusic({fade:0.3}), 100);
-          }
-        }
+        if (document.hidden){ this._wasPlaying = playing; this.pauseMusic({fade:0.2}); }
+        else if (this._wasPlaying){ setTimeout(()=>this.playMusic({fade:0.3}),100); }
       }
     };
   })();
-  // === /AUDIO MANAGER ===
 
-  // Registra visibilidade com bind para manter o this correto
   document.addEventListener('visibilitychange', AudioManager.handleVisibility.bind(AudioManager));
 
-  // === PRELOAD DE ÁUDIO (forceBuffer:true) ===
+  // === PRELOAD DE ÁUDIO ===
   (async function preloadAudio(){
     try{
       await AudioManager.preload({
-        music: {
-          src: ['./audio/music.ogg','./audio/music.mp3'],
-          forceBuffer: true
-        },
-        sfx: {
-          click: ['./audio/click.ogg','./audio/click.mp3'],
-          hit:   ['./audio/hit.ogg','./audio/hit.mp3']
-        }
+        music: { src: ['./audio/music.ogg','./audio/music.mp3'], forceBuffer: true },
+        sfx:   { click:['./audio/click.ogg','./audio/click.mp3'], hit:['./audio/hit.ogg','./audio/hit.mp3'] }
       });
     }catch(e){ console.warn('Preload de áudio falhou:', e); }
   })();
-  // === /PRELOAD DE ÁUDIO ===
 
   // === Spawn Config ===
   const CONFIG = {
@@ -539,9 +457,6 @@
   const HUD_BOTTOM = 72;
   const PLAY_Y_MIN = HUD_TOP + 8;
   const PLAY_Y_MAX = H - HUD_BOTTOM;
-  const logoImg = new Image(); logoImg.src = './img/logo.png';
-  const goTimeEl = document.getElementById('goTime');
-  const goBestEl = document.getElementById('goBest');
 
   // Reiniciar a partir da tela HTML
   go.restart.onclick = ()=>{ reset(); start(); };
@@ -555,31 +470,17 @@
   const PLAYER_BASE_SPEED = 6;
   const PLAYER_LEVEL_MULT = 0.12;
 
-  // --- Carregar sprites externos ---
+  // --- Sprites externos (tolerante a falhas) ---
   const sprites = {};
   const spritePath = "./img/";
-  const gameOverImg = new Image();
-  gameOverImg.src = spritePath + 'gameover.png';
-
-  let goBtn = null;
-
   function loadImage(name, file) {
     return new Promise((resolve) => {
       const img = new Image();
       img.src = spritePath + file;
-      img.onload = async () => {
-        try { if (img.decode) await img.decode(); } catch(_) {}
-        sprites[name] = img;
-        resolve();
-      };
-      img.onerror = () => {
-        console.warn('Falha ao carregar', name);
-        resolve();
-      };
+      img.onload = async () => { try{ if (img.decode) await img.decode(); }catch(_){} sprites[name] = img; resolve(); };
+      img.onerror = () => { console.warn('Falha ao carregar sprite:', file); resolve(); };
     });
   }
-
-  // Lista de imagens usadas
   const imageFiles = [
     ["editor", "editor.png"],
     ["designer", "designer.png"],
@@ -595,14 +496,7 @@
     ["pizza", "salario.png"],
     ["heart", "vida.png"]
   ];
-
-  function drawSprite(name, x, y, w, h) {
-    const img = sprites[name];
-    if (img) {
-      if (w && h) ctx.drawImage(img, x, y, w, h);
-      else ctx.drawImage(img, x, y);
-    }
-  }
+  function drawSprite(name,x,y,w,h){ const img = sprites[name]; if(!img) return; if (w&&h) ctx.drawImage(img,x,y,w,h); else ctx.drawImage(img,x,y); }
 
   const rand=(a,b)=>Math.random()*(b-a)+a; const clamp2=(v,a,b)=>Math.max(a,Math.min(b,v));
   function rect(A,B){return !(A.x+A.w<B.x||B.x+B.w<A.x||A.y+A.h<B.y||B.y+B.h<A.y)}
@@ -618,10 +512,9 @@
   let spawnBag = [];
   let lifeCounter = 0;
 
-  // TIMER DE SOBREVIVÊNCIA
+  // TIMER
   const storedBest = +localStorage.getItem('best_survival_ms') || 0;
   const timer = { accum: 0, start: 0, running: false, best: storedBest };
-
   function timerStart(){ timer.start = performance.now(); timer.running = true; }
   function timerPause(){ if (!timer.running) return; timer.accum += performance.now() - timer.start; timer.running = false; }
   function timerResume(){ if (timer.running) return; timer.start = performance.now(); timer.running = true; }
@@ -644,7 +537,7 @@
     state.score=0; state.coffee=0; state.level=1; state.lives=3;
     state.player.x=W/2-24; state.player.dir=1; state.player.vx=1;
     state.editor.x=W/2-24; state.editor.vx=3;
-    state.items.length=0; goBtn=null; hideGameOverHTML();
+    state.items.length=0; hideGameOverHTML();
     state.totalSpawns = 0;
     timerReset();
     spawnBag.length = 0;
@@ -656,38 +549,24 @@
     const bagSize = CONFIG.bagSize;
     const coffees = Math.min(coffeePer10ForLevel(state.level), bagSize);
     const hazards = Math.max(0, bagSize - coffees);
-
     spawnBag.length = 0;
     for (let i = 0; i < coffees; i++) spawnBag.push('coffee');
     for (let i = 0; i < hazards; i++) {
       const t = CONFIG.hazardTypes[i % CONFIG.hazardTypes.length];
       spawnBag.push(t);
     }
-
-    // embaralha
-    for (let i = spawnBag.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [spawnBag[i], spawnBag[j]] = [spawnBag[j], spawnBag[i]];
-    }
+    for (let i = spawnBag.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [spawnBag[i], spawnBag[j]] = [spawnBag[j], spawnBag[i]]; }
   }
 
   function nextSpawnType(){
     if (spawnBag.length === 0) refillSpawnBag();
-
-    // pega um tipo da bolsa
     let type = spawnBag.pop();
-
-    // avança contador de vida e verifica drop
     if (CONFIG.lifeEvery > 0) {
       lifeCounter++;
       if (lifeCounter >= CONFIG.lifeEvery) {
         if (type === 'coffee') {
           const hazardIdx = spawnBag.findIndex(t => t !== 'coffee');
-          if (hazardIdx !== -1) {
-            const hazard = spawnBag[hazardIdx];
-            spawnBag[hazardIdx] = 'coffee';
-            type = hazard;
-          }
+          if (hazardIdx !== -1) { const hazard = spawnBag[hazardIdx]; spawnBag[hazardIdx] = 'coffee'; type = hazard; }
         }
         type = 'pizza';
         lifeCounter = 0;
@@ -705,41 +584,38 @@
     state.totalSpawns++;
   }
 
-  const keys={left:false,right:false};
-
-  // Clique/Toque: inverte a direção do designer (no canvas)
-  cvs.addEventListener('pointerdown', ()=>{
-    if (state.gameOver) return;
-    state.player.dir *= -1;
-  });
+  // Clique/Toque no canvas: inverte direção
+  cvs.addEventListener('pointerdown', ()=>{ if (!state.gameOver) state.player.dir *= -1; });
 
   function start(){
     if(state.gameOver) reset();
     state.running = true;
     ui.start.textContent = '⏸︎ Pausar';
-    AudioManager.playMusic({fade:0.6});  // música entra suave
+    document.getElementById('pauseBtn').textContent = '⏸️ Pause';
+    AudioManager.playMusic({fade:0.6});
     timerStart();
     loop();
-  }  
+  }
 
   function togglePause(){
     state.running = !state.running;
     if (state.running){
       ui.start.textContent = '⏸︎ Pausar';
+      document.getElementById('pauseBtn').textContent = '⏸️ Pause';
       AudioManager.playMusic({fade:0.3});
       timerResume();
       loop();
     } else {
       ui.start.textContent = '▶️ Continuar';
+      document.getElementById('pauseBtn').textContent = '▶️ Continuar';
       AudioManager.pauseMusic({fade:0.2});
       timerPause();
     }
-  }  
+  }
 
   ui.start.onclick=()=>{ if(!state.running && !state.gameOver) start(); else togglePause(); };
   ui.reset.onclick=reset;
 
-  // Mute (volume geral)
   let muted = false;
   ui.mute.onclick=()=> {
     muted = !muted;
@@ -748,15 +624,11 @@
   };
 
   const pauseBtn = document.getElementById('pauseBtn');
-  pauseBtn.onclick = function() {
-    togglePause();
-    pauseBtn.textContent = state.running ? '⏸️ Pause' : '▶️ Continuar';
-    pauseBtn.style.color = '#fff';
-  };
+  pauseBtn.onclick = togglePause;
 
   function loop(){ if(!state.running) return; requestAnimationFrame(loop); update(); draw(); }
 
-  // ====== música acelera 0.1x a cada 2 níveis, começando em BASE ======
+  // ===== Música acelera 0.1x a cada 2 níveis (começa lenta) =====
   let lastAppliedRate = MUSIC_SPEED.BASE;
   function rateForLevel(lvl){
     const steps = Math.floor(Math.max(1, lvl - 1) / MUSIC_SPEED.LEVELS_PER_STEP);
@@ -765,61 +637,43 @@
 
   function update(){
     state.t++;
-
-    // level aumenta a cada 3 cafés
     state.level = 1 + Math.floor(state.coffee/3);
 
-    // aplica taxa de reprodução desejada
     const desiredRate = rateForLevel(state.level);
     if (Math.abs(desiredRate - lastAppliedRate) > 1e-4){
       AudioManager.setMusicRate(desiredRate);
       lastAppliedRate = desiredRate;
     }
 
-    // Movimento do editor
     state.editor.x += state.editor.vx * speedMult();
     if(state.editor.x<16 || state.editor.x>W-16-state.editor.w){
-      state.editor.vx*=-1;
-      state.editor.x=clamp2(state.editor.x,16,W-16-state.editor.w);
+      state.editor.vx*=-1; state.editor.x=clamp2(state.editor.x,16,W-16-state.editor.w);
     }
 
-    // Spawns
-    const rate = Math.max(24, (80 - state.level*5) / speedMult());
-    if(state.t % Math.floor(rate) === 0) spawn();
+    const spawnRate = Math.max(24, (80 - state.level*5) / speedMult());
+    if(state.t % Math.floor(spawnRate) === 0) spawn();
 
-    // Jogador
     const p = state.player;
     p.vx = p.dir;
     const v = PLAYER_BASE_SPEED * (1 + (state.level - 1) * PLAYER_LEVEL_MULT);
     p.x += p.vx * v;
 
-    // inverter nas bordas
     if (p.x <= 16){ p.x = 16; p.dir = 1; }
     else if (p.x >= W-16-p.w){ p.x = W-16-p.w; p.dir = -1; }
 
-    // Itens
-    for(const it of state.items){
-      it.x += it.sway * speedMult()*0.6;
-      it.y += it.vy   * speedMult();
-    }
+    for(const it of state.items){ it.x += it.sway * speedMult()*0.6; it.y += it.vy * speedMult(); }
 
-    // Colisões
-    for(let i=state.items.length-1;i>=0;i--){ 
-      const it=state.items[i]; 
+    for(let i=state.items.length-1;i>=0;i--){
+      const it=state.items[i];
       if(it.y>H+60){ state.items.splice(i,1); continue; }
       if(rect({x:p.x,y:p.y,w:p.w,h:p.h},{x:it.x,y:it.y,w:it.w,h:it.h})){
-        state.items.splice(i,1); // remove antes de processar
-
-        if (it.type === 'coffee') {
-          state.coffee++; state.score += 5;
-          AudioManager.playSfx('click', {volume:0.8});
-        } else if (it.type === 'pizza') { // vida
-          if (state.lives < CONFIG.maxLives) { state.lives++; }
-          else { state.score += 10; }
-          AudioManager.playSfx('click', {volume:0.8});
-        } else { // hazard
-          state.lives--;
-          AudioManager.playSfx('hit', {volume:1.0});
+        state.items.splice(i,1);
+        if (it.type === 'coffee'){ state.coffee++; state.score += 5; AudioManager.playSfx('click',{volume:0.8}); }
+        else if (it.type === 'pizza'){
+          if (state.lives < CONFIG.maxLives) state.lives++; else state.score += 10;
+          AudioManager.playSfx('click',{volume:0.8});
+        } else {
+          state.lives--; AudioManager.playSfx('hit',{volume:1.0});
           if (state.lives <= 0) { gameOver(); break; }
         }
       }
@@ -829,21 +683,14 @@
   function gameOver(){
     state.running = false;
     state.gameOver = true;
-    AudioManager.pauseMusic({fade:0.2}); // para BGM suavemente
-
+    AudioManager.pauseMusic({fade:0.2});
     timerPause();
     const elapsed = getElapsedMs();
-
-    if (elapsed > timer.best){
-      timer.best = elapsed;
-      localStorage.setItem('best_survival_ms', String(timer.best));
-    }
-
+    if (elapsed > timer.best){ timer.best = elapsed; localStorage.setItem('best_survival_ms', String(timer.best)); }
     const goTimeEl = document.getElementById('goTime');
     const goBestEl = document.getElementById('goBest');
     if (goTimeEl) goTimeEl.textContent  = 'Você sobreviveu por ' + fmtClock(elapsed, true);
     if (goBestEl) goBestEl.textContent  = 'Melhor tempo: ' + fmtClock(timer.best, true);
-    
     showGameOverHTML();
   }
 
@@ -854,8 +701,6 @@
     ctx.fillStyle = '#2b2a27';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-
-    // vidas
     for(let i=0;i<state.lives;i++){
       const totalW = state.lives*20 + (state.lives-1)*10;
       const x = W/2 - totalW/2 + i*30;
@@ -864,12 +709,8 @@
     }
     drawSprite('coffee', 16, 40, 48, 48);
     ctx.fillText('x '+state.coffee, 86, 52);
-
-    // Score
     ctx.font = '20px monospace';
     ctx.fillText(String(state.score).padStart(4,'0'), 86, 74);
-
-    // Cronômetro
     ctx.font = '24px monospace';
     ctx.textAlign = 'right';
     ctx.fillText(fmtClock(getElapsedMs(), false), W-24, 52);
@@ -887,90 +728,16 @@
 
   function drawStart(){ ctx.fillStyle='rgba(0,0,0,.25)'; ctx.fillRect(0,0,W,H); }
 
-  function wrapText(ctx, text, x, y, maxWidth, lineHeight){
-    const words = text.split(' ');
-    let line = '', yy = y;
-    for (let i=0;i<words.length;i++){
-      const test = line + (line?' ':'') + words[i];
-      if (ctx.measureText(test).width > maxWidth && i>0){
-        ctx.fillText(line, x, yy);
-        line = words[i];
-        yy += lineHeight;
-      } else {
-        line = test;
-      }
-    }
-    ctx.fillText(line, x, yy);
-  }
+  // Game Over (HTML) já é usado; esta versão canvas não é necessária agora
 
-  function drawGameOver(){
-    // overlay
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(0,0,W,H);
-
-    // painel central
-    const panelW = Math.min(520, W * 0.8);
-    const panelH = Math.min(380, H * 0.7);
-    const px = (W - panelW) / 2;
-    const py = (H - panelH) / 2;
-
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(px, py, panelW, panelH);
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = '#4b3a2a';
-    ctx.strokeRect(px+2, py+2, panelW-4, panelH-4);
-
-    // imagem
-    const imgW = Math.min(panelW - 40, 320);
-    const imgH = imgW * 0.5625;
-    const ix = W/2 - imgW/2;
-    const iy = py + 24;
-    const gameOverImg = new Image(); gameOverImg.src = './img/gameover.png';
-    if (gameOverImg.complete) ctx.drawImage(gameOverImg, ix, iy, imgW, imgH);
-
-    // texto
-    ctx.fillStyle = '#2b2a27';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.font = '18px monospace';
-    const msg = 'Que pena. Você não performou o suficiente e teve um burnout. Tente novamente.';
-    wrapText(ctx, msg, W/2, iy + imgH + 16, panelW - 40, 22);
-
-    // botão
-    const bw = 200, bh = 44;
-    const bx = W/2 - bw/2;
-    const by = py + panelH - bh - 20;
-    ctx.fillStyle = '#1e1d1b';
-    ctx.fillRect(bx, by, bw, bh);
-    ctx.strokeStyle = '#5a5348';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(bx, by, bw, bh);
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '20px monospace';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('Reiniciar', W/2, by + bh/2 + 2);
-
-    // hitbox do botão
-    goBtn = { x: bx, y: by, w: bw, h: bh };
-  }
-
-  // Clique no canvas na tela de game over para reiniciar
+  // Clique no canvas no GO para reiniciar (fallback)
   cvs.addEventListener('pointerdown', (e) => {
-    if (!state.gameOver || !goBtn) return;
-    const r = cvs.getBoundingClientRect();
-    const x = (e.clientX - r.left) / r.width * W;
-    const y = (e.clientY - r.top) / r.height * H;
-    if (x >= goBtn.x && x <= goBtn.x + goBtn.w &&
-        y >= goBtn.y && y <= goBtn.y + goBtn.h) {
-        reset(); start();
-    }
+    if (!state.gameOver) return;
+    reset(); start();
   });
 
-  Promise.all(imageFiles.map(([name, file]) => loadImage(name, file))).then(() => {
-    reset();
-    draw();
-    showMenu();
+  Promise.all(imageFiles.map(([n, f]) => loadImage(n, f))).then(() => {
+    reset(); draw(); showMenu();
   });
 
 })();
