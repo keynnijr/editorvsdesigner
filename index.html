@@ -9,7 +9,7 @@
     #menuBackdrop {
       position: fixed; inset: 0;
       display: flex; align-items: center; justify-content: center;
-      background: rgba(0,0,0,.65); z-index: 9999;
+      background: rgba(0,0,0,.65); z-index: 10010;
     }
     #menuPanel {
       background: #f7d0a4; color: #2b2a27;
@@ -339,9 +339,14 @@
     return val;
     }
 
-  // Mostrar/Ocultar menu
-  function showMenu() { menu.back.style.display = 'flex'; }
-  function hideMenu() { menu.back.style.display = 'none'; }
+ function showMenu() { 
+  menu.back.style.display = 'flex'; 
+  document.body.classList.add('none');           // <—
+}
+function hideMenu() { 
+  menu.back.style.display = 'none'; 
+  document.body.classList.remove('block');        // <—
+}
 
   // START — desbloqueia e inicia música
   menu.start.onclick = async () => {
@@ -677,6 +682,7 @@ document.addEventListener('DOMContentLoaded', () => {
  </script>
 </body>
 </html>
+
 
 
 
