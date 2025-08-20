@@ -1,0 +1,13 @@
+[
+   { "note": "A", "octave": 4, "duration": "e" },
+    { "note": "F", "octave": 4, "duration": "e" },
+    { "note": "A", "octave": 4, "duration": "e" },
+    { "note": "F", "octave": 4, "duration": "e" },
+    { "note": "B", "octave": 4, "duration": "e" },
+    { "note": "C", "octave": 5, "duration": "e" },
+    { "note": "B", "octave": 4, "duration": "e" },
+    { "note": "C", "octave": 5, "duration": "e" },
+    { "note": "B", "octave": 4, "duration": "e" },
+    { "note": "A", "octave": 4, "duration": "e" },
+    { "note": "F", "octave": 4, "duration": "e" }
+]
