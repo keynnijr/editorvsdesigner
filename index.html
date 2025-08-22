@@ -356,7 +356,7 @@ async function renderTop3() {
     const top3 = await fetchTop3Sheets();
     if (!top3.length) { el.textContent = "Sem registros ainda."; return; }
     el.innerHTML = `<h3>Top 3</h3>` +
-      top3.map((p,i)=>`<p>${i+1}. ${p.name} — ${p.score}</p>`).join("");
+      top3.map((p,i)=>`<p>${i+1}. ${p.name} — ${fmtClock(parseInt(p.score), true)}</p>`).join("");
   } catch(e) {
     el.textContent = "Erro ao carregar ranking.";
     console.error(e);
@@ -779,4 +779,5 @@ function gameOver() {
  </script>
 </body>
 </html>
+
 
