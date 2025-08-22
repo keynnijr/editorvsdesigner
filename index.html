@@ -66,12 +66,14 @@
   <div id="menuBackdrop">
     <div id="menuPanel">
       <img src="./img/logo.png" alt="Logo do jogo" id="menuLogo" />
-       <!-- Box para nome do jogador -->
+      
+      <!-- Box para nome do jogador -->
   <label for="playerNameInput">Seu nome:</label>
   <input type="text" id="playerNameInput" placeholder="Digite seu nome" />
 
       <div class="menu-buttons">
         <button id="menuStartBtn">▶️ START</button>
+         <button id="menuRankBtn">🏆 RANKING</button>
         <button id="menuInstrBtn">📜 INSTRUÇÕES</button>
       </div>
 
@@ -83,7 +85,16 @@
       </p>
     </div>
   </div>
-
+<!-- NOVO: Modal de Ranking -->
+<div id="rankingModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.8); z-index:20000; display:flex; justify-content:center; align-items:center;">
+  <div style="background:#f7d0a4; border:4px solid #4b3a2a; border-radius:12px; padding:20px; width:90%; max-width:500px; position:relative;">
+    <button id="closeRankingBtn" style="position:absolute; top:10px; right:10px; background:#4b3a2a; color:#fff; border:none; border-radius:6px; padding:4px 10px; cursor:pointer;">Voltar</button>
+    <h2 style="text-align:center; margin-top:0;">🏆 Top 10</h2>
+    <ol id="rankingList" style="font-size:18px; padding-left:20px; line-height:1.6;">
+      <!-- Lista do ranking será preenchida via JS -->
+    </ol>
+  </div>
+</div>
   <div class="wrap">
     <canvas id="game" width="540" height="960" aria-label="Designer vs Editor (mobile)"></canvas>
     <div class="bar">
@@ -104,11 +115,6 @@
         </div>
       </div>
     </div>
-  </div>
-
-  <div class="touch">
-    <button class="btn tbtn" id="left"  tabindex="-1">⬅</button>
-    <button class="btn tbtn" id="right" tabindex="-1">➡</button>
   </div>
 
   <button id="pauseBtn" class="btn" style="
@@ -133,7 +139,35 @@
     right: byId('right') };
   // No topo do script, adicione:
   let lastMusicLevelTrigger = 1;
+// Botões
+const rankBtn = document.getElementById("menuRankBtn");
+const rankingModal = document.getElementById("rankingModal");
+const closeRankingBtn = document.getElementById("closeRankingBtn");
+const rankingList = document.getElementById("rankingList");
+// Abrir Ranking
+rankBtn.addEventListener("click", async () => {
+  rankingModal.style.display = "flex";
+  rankingList.innerHTML = "<li>Carregando...</li>";
 
+  try {
+    const res = await fetch("URL_DO_SEU_APPSCRIPT?top=10"); // ajuste a URL
+    const data = await res.json();
+
+    rankingList.innerHTML = "";
+    data.forEach((p, i) => {
+      rankingList.innerHTML += `<li>${i+1}. ${p.name} – ${fmtClock(p.score, true)}</li>`;
+    });
+
+  } catch (err) {
+    console.error(err);
+    rankingList.innerHTML = "<li>Erro ao carregar ranking</li>";
+  }
+});
+
+// Fechar Ranking
+closeRankingBtn.addEventListener("click", () => {
+  rankingModal.style.display = "none";
+});
   // Função para calcular o trigger de nível (a cada 2 níveis)
   function getMusicLevelTrigger(level) {
     return Math.floor((level - 1) / MUSIC_SPEED.LEVELS_PER_STEP); // LEVELS_PER_STEP = 2
@@ -792,6 +826,7 @@ function gameOver() {
  </script>
 </body>
 </html>
+
 
 
 
