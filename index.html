@@ -171,7 +171,7 @@
           <p id="goBest" style="font-size:14px; opacity:.8;"></p>
           <button id="restartBtn">Reiniciar</button>
           <!-- Ranking aparece AQUI, logo abaixo do botão -->
-  <div id="rankingTop3" class="ranking"></div>
+          <div id="rankingTop3" class="ranking"></div>
         </div>
       </div>
     </div>
@@ -208,9 +208,14 @@ const rankingList = document.getElementById("rankingList");
 rankBtn.addEventListener("click", async () => {
   rankingModal.style.display = "flex";
   rankingList.innerHTML = "<li>Carregando...</li>";
+// ====== Fluxo de Game Over ======
+let _scoreEnviadoNestaRodada = false;
+const PROXY = "https://cors-anywhere.herokuapp.com/";
+const SHEETS_URL = "https://script.google.com/macros/s/AKfycbwsVkI2AAdfTaQ_Yk2GFAisKX7JwMqnxjhl_SMDSoWvG83FFx5QmHLsEBGs4ZYEpgBt-g/exec";
 
   try {
-    const res = await fetch("https://script.google.com/macros/s/AKfycbyAFllOPOXTCebGHFS5SVjLkeLpESE_RLgZOnCiyNXa0h0WGRG7Q-FGIgp_snrw_AHtiw/exec"); // ajuste a URL
+    
+    const res = await fetch(SHEETS_URL + "?limit=10"); // ajuste a URL
     const data = await res.json();
 
     rankingList.innerHTML = "";
@@ -430,13 +435,11 @@ closeRankingBtn.addEventListener("click", () => {
     }) ();
 
   
-  // ====== Fluxo de Game Over ======
 let _scoreEnviadoNestaRodada = false;
 const PROXY = "https://cors-anywhere.herokuapp.com/";
-const SHEETS_URL = "https://script.google.com/macros/s/AKfycbyAFllOPOXTCebGHFS5SVjLkeLpESE_RLgZOnCiyNXa0h0WGRG7Q-FGIgp_snrw_AHtiw/exec";
-
+const SHEETS_URL = "https://script.google.com/macros/s/AKfycbwsVkI2AAdfTaQ_Yk2GFAisKX7JwMqnxjhl_SMDSoWvG83FFx5QmHLsEBGs4ZYEpgBt-g/exec";  
 async function fetchTop3Sheets() {
-  const res = await fetch(SHEETS_URL);
+  const res = await fetch(SHEETS_URL + "?limit=3");
   return await res.json();
 }
 
