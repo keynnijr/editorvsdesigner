@@ -19,23 +19,75 @@
       padding: 20px; text-align: center;
       box-shadow: 0 10px 30px rgba(0,0,0,.35);
     }
-    #menuLogo { max-width: 80%; margin-bottom: 20px; }
-    display: block;          /* transforma em bloco para poder centralizar */
-  margin: 0 auto 20px;     /* centraliza horizontalmente e adiciona espaço de 20px abaixo */
-  max-width: 80%;          /* garante que não estoure a tela em telas pequenas */
-  height: auto;            /* mantém a proporção */
-    .menu-buttons { display: flex; flex-direction: column; gap: 10px; }
-    .menu-buttons button {
-      padding: 12px; border: 2px solid #5a5348; border-radius: 10px;
-      background: #1e1d1b; color: #fff; cursor: pointer; font-size: 18px;
-    }
-    .menu-buttons button:active { transform: translateY(1px); }
+     #menuLogo {
+    display: block;
+    margin: 0 auto 20px;
+    max-width: 80%;
+    height: auto;
+  }
+    /* Container do nome */
+  .player-name-box {
+    margin-bottom: 20px;
+  }
+    .player-name-box label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 18px;
+    font-weight: bold;
+  }
+  .player-name-box input {
+    padding: 10px;
+    width: 80%;
+    max-width: 300px;
+    border: 2px solid #5a5348;
+    border-radius: 8px;
+    text-align: center;
+    font-size: 16px;
+  }
+     .menu-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 12px; /* espaço entre eles */
+    margin-top: 20px;
+  }
+  .menu-buttons button {
+    padding: 12px;
+    border: 2px solid #5a5348;
+    border-radius: 10px;
+    background: #1e1d1b;
+    color: #fff;
+    cursor: pointer;
+    font-size: 18px;
+  }
+  .menu-buttons button:active {
+    transform: translateY(1px);
+  }
 
-    :root { --bg:#2b2a27; --panel:#1e1d1b; }
-    html,body{height:100%;margin:0;background:var(--bg);font-family:system-ui,Segoe UI,Roboto,Arial;overflow:hidden}
-    .wrap{display:grid;place-items:center;height:100%;padding:0}
-    canvas{image-rendering: pixelated; image-rendering: crisp-edges; background:#e3cda1; outline:3px solid #4b3a2a; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.35)}
-    .bar{display:flex;gap:8px;align-items:center;justify-content:center;color:#fff;opacity:.9;margin-top:6px}
+    :root { --bg:#2b2a27;
+           --panel:#1e1d1b; }
+    html,body{
+      height:100%;
+      margin:0;
+      background:var(--bg);
+      font-family:system-ui,Segoe UI,Roboto,Arial;
+      overflow:hidden}
+    
+    .wrap{display:grid;
+          place-items:center;
+          height:100%;
+          padding:0}
+    canvas{image-rendering: pixelated; 
+           image-rendering: crisp-edges; 
+           background:#e3cda1; 
+           outline:3px solid #4b3a2a; 
+           border-radius:12px; 
+           box-shadow:0 10px 30px rgba(0,0,0,.35)}
+    .bar{display:flex;
+         gap:8px;
+         align-items:center;
+         justify-content:center;
+         color:#fff;opacity:.9;
+         margin-top:6px}
     .btn{background:var(--panel);border:2px solid #5a5348;border-radius:10px;padding:8px 12px;cursor:pointer}
     .btn:active{transform:translateY(1px)}
     .btn:focus{outline:none}
@@ -72,9 +124,11 @@
     <div id="menuPanel">
       <img src="./img/logo.png" alt="Logo do jogo" id="menuLogo" />
       
-      <!-- Box para nome do jogador -->
+  <!-- Box para nome do jogador -->
+<div class="player-name-box">
   <label for="playerNameInput">Seu nome:</label>
   <input type="text" id="playerNameInput" placeholder="Digite seu nome" />
+</div>
 
       <div class="menu-buttons">
         <button id="menuStartBtn">▶️ START</button>
@@ -831,6 +885,7 @@ function gameOver() {
  </script>
 </body>
 </html>
+
 
 
 
