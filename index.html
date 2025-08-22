@@ -628,7 +628,7 @@ function draw(){
     const type = nextSpawnType();
     const x = clamp2(state.editor.x+24+rand(-60,60), 16, W-16-48);
     const y = state.editor.y+40;
-    const baseVY = rand(2.2,4.2) + state.level*0.2;
+    const baseVY = rand(4,7) + state.level*0.4;
     state.items.push({ x, y, w:48, h:48, vy:baseVY, type, sway:rand(-0.6,0.6) });
     state.totalSpawns++;
   }
@@ -792,6 +792,7 @@ function gameOver() {
  </script>
 </body>
 </html>
+
 
 
 
