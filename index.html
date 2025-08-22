@@ -66,6 +66,10 @@
   <div id="menuBackdrop">
     <div id="menuPanel">
       <img src="./img/logo.png" alt="Logo do jogo" id="menuLogo" />
+       <!-- Box para nome do jogador -->
+  <label for="playerNameInput">Seu nome:</label>
+  <input type="text" id="playerNameInput" placeholder="Digite seu nome" />
+
       <div class="menu-buttons">
         <button id="menuStartBtn">▶️ START</button>
         <button id="menuInstrBtn">📜 INSTRUÇÕES</button>
@@ -146,6 +150,7 @@
   function hideGameOverHTML(){ go.back.style.display = 'none'; go.back.setAttribute('aria-hidden','true'); }
 
   // --- MENU PRINCIPAL ---
+  const input = document.getElementById("playerNameInput");
   const menu = {
     back: document.getElementById('menuBackdrop'),
     start: document.getElementById('menuStartBtn'),
@@ -403,6 +408,14 @@ function hideMenu() {
 
   // START — desbloqueia e inicia música
   menu.start.onclick = async () => {
+    // 🔹 Captura o nome digitado no input
+  const input = document.getElementById("playerNameInput");
+  let playerName = input.value.trim();
+  if (!playerName) {
+    playerName = "Jogador"; // nome padrão
+  }
+  localStorage.setItem("playerName", playerName);
+
     await AudioManager.unlock();
     AudioManager.playMusic({fade:0.6});
     AudioManager.playSfx('click',{volume:0.8});
@@ -779,5 +792,6 @@ function gameOver() {
  </script>
 </body>
 </html>
+
 
 
