@@ -333,18 +333,20 @@
   
   // ====== Fluxo de Game Over ======
 let _scoreEnviadoNestaRodada = false;
-async function addScoreSheets(player, score) {
-  const url = "https://script.google.com/macros/s/AKfycbxvfimPkjHi0EgpNScZ4bu_SRwY9Gkor6qMtyHbH6dna5MDnGAP13vpsLsCV1eQTuwtTQ/execEC"; // cole aqui o URL do Apps Script
-  await fetch(url, {
-    method: "POST",
-    body: new URLSearchParams({ name: player, score: score })
-  });
-}
+const PROXY = "https://cors-anywhere.herokuapp.com/";
+const SHEETS_URL = "https://script.google.com/macros/s/AKfycbyAFllOPOXTCebGHFS5SVjLkeLpESE_RLgZOnCiyNXa0h0WGRG7Q-FGIgp_snrw_AHtiw/exec";
+
 async function fetchTop3Sheets() {
-  const url = "https://script.google.com/macros/s/AKfycbxvfimPkjHi0EgpNScZ4bu_SRwY9Gkor6qMtyHbH6dna5MDnGAP13vpsLsCV1eQTuwtTQ/exec"; // mesma URL
-  const res = await fetch(url);
-  const data = await res.json();
-  return data; // [{name:"...", score:123, date:"..."}]
+  const res = await fetch(SHEETS_URL);
+  return await res.json();
+}
+
+async function addScoreSheets(player, score) {
+  const params = new URLSearchParams({ name: player, score });
+  const res = await fetch(SHEETS_URL + "?" + params.toString(), {
+    method: "POST"
+  });
+  return await res.json();
 }
 
 async function renderTop3() {
