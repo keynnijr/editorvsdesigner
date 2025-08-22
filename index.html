@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="pt-br">
 <head>
@@ -88,7 +89,7 @@
         <div id="goPanel">
           <img src="./img/gameover.png" alt="Game Over" />
           <h2 style="font-size: 32px; font-weight: bold; margin-bottom: 10px;">
-            VOCÊ SOFREU UM BURNOUT!!!
+           <span id="playerNameLabel"></span>, VOCÊ SOFREU UM BURNOUT!!!
           </h2>
           <p style="font-size: 24px;">Tire 1 ano sabático e tente novamente.</p>
           <p id="goTime" style="font-size:20px; margin:8px 0 0 0;"></p>
@@ -330,88 +331,47 @@
     }) ();
 
   
-  // ====== CONFIG DREAMLO ======
-const DREAMLO_PRIVATE = "4mBpWoSHskqOxTtRuYvQkggIeg3OVpckaUT3UBnYwhDw"; // para ADICIONAR score
-const DREAMLO_PUBLIC  = "68a677808f40bb12e06f2b7b";  // para LER ranking
-
-// ====== HELPERS ======
-function escapeHtml(s = "") {
-  return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-}
-async function fetchTop3Dreamlo() {
-  const url = `https://www.dreamlo.com/lb/${DREAMLO_PUBLIC}/json`;
-  const res = await fetch(url, { cache: "no-store" });
-  const ct = (res.headers.get("content-type") || "").toLowerCase();
-
-  if (ct.includes("application/json")) {
-    const data = await res.json();
-    let entries = data?.dreamlo?.leaderboard?.entry || [];
-    if (!Array.isArray(entries)) entries = [entries];
-    entries.sort((a,b)=>Number(b.score)-Number(a.score));
-    return entries.slice(0,3);
-  } else {
-    const text = await res.text();
-    if (text.startsWith("ERROR")) throw new Error(text); // mostra msg amigável
-    // fallback: às vezes o Dreamlo manda JSON mas sem header correto
-    try {
-      const data = JSON.parse(text);
-      let entries = data?.dreamlo?.leaderboard?.entry || [];
-      if (!Array.isArray(entries)) entries = [entries];
-      entries.sort((a,b)=>Number(b.score)-Number(a.score));
-      return entries.slice(0,3);
-    } catch {
-      throw new Error("Resposta inválida do Dreamlo.");
-    }
-  }
-}
-
-async function addScoreDreamlo(player, score) {
-  const url = `https://www.dreamlo.com/lb/${DREAMLO_PRIVATE}/add/${encodeURIComponent(player)}/${Math.floor(score)}`;
-  try {
-    await fetch(url, { mode: "no-cors", keepalive: true });
-  } catch(e) {
-    console.warn("Falha ao enviar score:", e);
-  }
-}
-  // Renderiza Top 3 abaixo do botão Reiniciar
-async function renderTop3() {
-  const el = document.getElementById("rankingTop3");
-  if (!el) return;
-  el.textContent = "Carregando ranking...";
-  try {
-    const top3 = await fetchTop3Dreamlo();
-    if (!top3.length) { el.textContent = "Sem registros ainda."; return; }
-    el.innerHTML = `<h3 style="margin:.8rem 0 .4rem 0">Top 3</h3>` +
-      top3.map((p,i)=>`<p>${i+1}. ${escapeHtml(p.name)} — ${p.score}</p>`).join("");
-  } catch (err) {
-    console.error(err);
-    el.textContent = "Não foi possível carregar o ranking agora.";
-  }
-}
   // ====== Fluxo de Game Over ======
 let _scoreEnviadoNestaRodada = false;
+async function addScoreSheets(player, score) {
+  const url = "https://script.google.com/macros/s/AKfycbxvfimPkjHi0EgpNScZ4bu_SRwY9Gkor6qMtyHbH6dna5MDnGAP13vpsLsCV1eQTuwtTQ/execEC"; // cole aqui o URL do Apps Script
+  await fetch(url, {
+    method: "POST",
+    body: new URLSearchParams({ name: player, score: score })
+  });
+}
+async function fetchTop3Sheets() {
+  const url = "https://script.google.com/macros/s/AKfycbxvfimPkjHi0EgpNScZ4bu_SRwY9Gkor6qMtyHbH6dna5MDnGAP13vpsLsCV1eQTuwtTQ/exec"; // mesma URL
+  const res = await fetch(url);
+  const data = await res.json();
+  return data; // [{name:"...", score:123, date:"..."}]
+}
 
-async function showGameOver(finalScore) {
-  // Mostra a tela
-  document.getElementById("gameOver").hidden = false;
-
-  // Nome do jogador (salva pra próxima vez)
-  let player = localStorage.getItem("playerName");
-  if (!player) {
-    player = prompt("Seu nome no ranking:") || "Jogador";
-    localStorage.setItem("playerName", player);
-  }
-
-  // Evita enviar o mesmo score várias vezes caso a função seja chamada mais de uma vez
-  if (!_scoreEnviadoNestaRodada) {
-    _scoreEnviadoNestaRodada = true;
-    // Envia o score e, depois, atualiza o Top 3
-    addScoreDreamlo(player, finalScore).finally(renderTop3);
-  } else {
-    // Se já enviou, apenas renderiza o ranking
-    renderTop3();
+async function renderTop3() {
+  const el = document.getElementById("rankingTop3");
+  el.textContent = "Carregando ranking...";
+  try {
+    const top3 = await fetchTop3Sheets();
+    if (!top3.length) { el.textContent = "Sem registros ainda."; return; }
+    el.innerHTML = `<h3>Top 3</h3>` +
+      top3.map((p,i)=>`<p>${i+1}. ${p.name} — ${p.score}</p>`).join("");
+  } catch(e) {
+    el.textContent = "Erro ao carregar ranking.";
+    console.error(e);
   }
 }
+  async function showGameOver(finalScore) {
+    // Mostra a tela
+    document.getElementById("gameOver").hidden = false;
+
+    // Nome do jogador (salva pra próxima vez)
+    let player = localStorage.getItem("playerName");
+    if (!player) {
+      player = prompt("Seu nome no ranking:") || "Jogador";
+      localStorage.setItem("playerName", player);
+    }
+  }
+
 
   // === Spawn Config ===
   const CONFIG = {
@@ -437,7 +397,7 @@ async function showGameOver(finalScore) {
 function hideMenu() { 
   menu.back.style.display = 'none'; 
  
-}
+  }
 
   // START — desbloqueia e inicia música
   menu.start.onclick = async () => {
@@ -467,6 +427,7 @@ function hideMenu() {
   function byId(id){ return document.getElementById(id); }
 
   function fit(){ const s=Math.min(innerWidth/W, innerHeight/H); cvs.style.width=W*s+'px'; cvs.style.height=H*s+'px';positionGameOverOverlayToCanvas(); }
+
   function positionGameOverOverlayToCanvas() {
   const r = cvs.getBoundingClientRect();
   const el = go.back; // #goBackdrop
@@ -476,18 +437,18 @@ function hideMenu() {
   el.style.top    = r.top + 'px';
   el.style.width  = r.width + 'px';
   el.style.height = r.height + 'px';
-}
+  }
 
-// sempre que redimensionar, realinha o overlay
-addEventListener('resize', positionGameOverOverlayToCanvas);
-addEventListener('orientationchange', positionGameOverOverlayToCanvas);
-// se a página puder rolar, também:
-addEventListener('scroll', positionGameOverOverlayToCanvas, true);
-  addEventListener('resize', fit); fit();
+  // sempre que redimensionar, realinha o overlay
+  addEventListener('resize', positionGameOverOverlayToCanvas);
+  addEventListener('orientationchange', positionGameOverOverlayToCanvas);
+  // se a página puder rolar, também:
+  addEventListener('scroll', positionGameOverOverlayToCanvas, true);
+    addEventListener('resize', fit); fit();
 
   // Velocidade do jogador
-  const PLAYER_BASE_SPEED = 4;
-  const PLAYER_LEVEL_MULT = 0.05;
+  const PLAYER_BASE_SPEED = 5;
+  const PLAYER_LEVEL_MULT = 0.08;
 
   // --- Sprites externos (tolerante a falhas) ---
   const sprites = {};
@@ -758,70 +719,60 @@ function draw(){
     }      
 }
 
-  function gameOver(){
+function gameOver() {
   state.running = false;
   state.gameOver = true;
-
-  AudioManager.pauseMusic({fade:0.2});
-  AudioManager.playSfx('gameover',{volume:0.8});
+  AudioManager.pauseMusic({ fade: 0.2 });
+  AudioManager.playSfx('gameover', { volume: 0.8 });
   timerPause();
 
   const elapsed = getElapsedMs();
-  if (elapsed > timer.best){
+  if (elapsed > timer.best) {
     timer.best = elapsed;
     localStorage.setItem('best_survival_ms', String(timer.best));
   }
 
   const goTimeEl = document.getElementById('goTime');
   const goBestEl = document.getElementById('goBest');
-  if (goTimeEl) goTimeEl.textContent  = 'Você sobreviveu por ' + fmtClock(elapsed, true);
-  if (goBestEl) goBestEl.textContent  = 'Melhor tempo: ' + fmtClock(timer.best, true);
+  if (goTimeEl) goTimeEl.textContent = 'Você sobreviveu por ' + fmtClock(elapsed, true);
+  if (goBestEl) goBestEl.textContent = 'Melhor tempo: ' + fmtClock(timer.best, true);
 
-  // ——— NOVO: nome + envio de score + Top 3 ———
+  // ——— NOVO: nome do jogador ———
   let player = localStorage.getItem("playerName");
   if (!player) {
     player = prompt("Seu nome no ranking:") || "Jogador";
     localStorage.setItem("playerName", player);
   }
 
-  // Envia o score apenas uma vez por rodada e depois desenha o Top 3
+  // Atualiza a label no Game Over (em cima da frase)
+  const label = document.getElementById("playerNameLabel");
+  if (label) label.textContent = player;
+
+  // ——— NOVO: enviar score + renderizar ranking ———
   if (!_scoreEnviadoNestaRodada) {
     _scoreEnviadoNestaRodada = true;
-    addScoreDreamlo(player, Math.floor(elapsed)).finally(renderTop3);
+    addScoreSheets(player, Math.floor(elapsed)).finally(renderTop3);
   } else {
     renderTop3();
   }
-
-  showGameOverHTML();
 }
+  showGameOverHTML();
+  
  
   
-  // Clique no canvas no GO para reiniciar (fallback)
+// Clique no canvas no GO para reiniciar (fallback)
   cvs.addEventListener('pointerdown', (e) => {
     if (!state.gameOver) return;
     reset(); start();
   });
-document.addEventListener('DOMContentLoaded', () => {
-  Promise.all(imageFiles.map(([n, f]) => loadImage(n, f))).then(() => {
-    reset();
-    draw();
-    showMenu();
-  });
-  });
-})();
+  document.addEventListener('DOMContentLoaded', () => {
+    Promise.all(imageFiles.map(([n, f]) => loadImage(n, f))).then(() => {
+      reset();
+      draw();
+      showMenu();
+    });
+    });
+  })();
  </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
